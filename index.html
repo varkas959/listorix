@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Listorix – Stop Overspending on Groceries</title>
+  <meta name="description" content="Know your total before you reach the billing counter. Add items, track spending, adjust as you shop." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --teal: #1AABA8;
+      --teal-dark: #148F8C;
+      --teal-light: #E6F7F7;
+      --text: #0F172A;
+      --muted: #64748B;
+      --border: #E2E8F0;
+      --bg: #FFFFFF;
+      --card: #F8FAFB;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+    .nav-logo-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--teal);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .nav-logo-icon svg { width: 20px; height: 20px; }
+    .nav-logo-text {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.4px;
+    }
+    .nav-cta {
+      background: var(--teal);
+      color: #fff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 100px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .nav-cta:hover { background: var(--teal-dark); }
+
+    /* ── Hero ── */
+    .hero {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 80px 24px 60px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--teal-light);
+      color: var(--teal-dark);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 100px;
+      margin-bottom: 20px;
+    }
+    .hero h1 {
+      font-size: clamp(36px, 5vw, 52px);
+      font-weight: 900;
+      line-height: 1.1;
+      letter-spacing: -1.5px;
+      color: var(--text);
+      margin-bottom: 20px;
+    }
+    .hero h1 span { color: var(--teal); }
+    .hero p {
+      font-size: 18px;
+      color: var(--muted);
+      margin-bottom: 36px;
+      line-height: 1.7;
+    }
+    .hero-buttons {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .btn-store {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 20px;
+      border-radius: 14px;
+      background: var(--text);
+      color: #fff;
+      text-decoration: none;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-store:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.15); }
+    .btn-store svg { width: 24px; height: 24px; flex-shrink: 0; }
+    .btn-store-text { display: flex; flex-direction: column; }
+    .btn-store-sub { font-size: 11px; opacity: 0.75; }
+    .btn-store-name { font-size: 15px; font-weight: 700; line-height: 1.2; }
+    .btn-store.outline {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--text);
+    }
+    .btn-store.outline:hover { border-color: var(--teal); }
+
+    /* Phone mockup */
+    .hero-visual {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .phone-wrap {
+      position: relative;
+      width: 280px;
+    }
+    .phone-frame {
+      width: 280px;
+      height: 560px;
+      background: linear-gradient(135deg, #1AABA8 0%, #148F8C 100%);
+      border-radius: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 40px 80px rgba(26,171,168,0.3), 0 0 0 1px rgba(255,255,255,0.1);
+      position: relative;
+      overflow: hidden;
+    }
+    .phone-frame::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: linear-gradient(160deg, rgba(255,255,255,0.15) 0%, transparent 60%);
+    }
+    .phone-content {
+      width: 240px;
+      background: #fff;
+      border-radius: 32px;
+      padding: 20px 16px;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.05);
+      position: relative;
+      z-index: 1;
+    }
+    .phone-amount {
+      font-size: 26px;
+      font-weight: 900;
+      color: var(--teal);
+      letter-spacing: -0.5px;
+      margin-bottom: 16px;
+    }
+    .phone-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .phone-item:last-child { border-bottom: none; }
+    .phone-item-emoji { font-size: 22px; }
+    .phone-item-info { flex: 1; }
+    .phone-item-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .phone-item-qty { font-size: 11px; color: var(--muted); }
+    .phone-item-price { font-size: 13px; font-weight: 700; color: var(--text); }
+    .phone-checkbox {
+      width: 20px; height: 20px;
+      border-radius: 6px;
+      border: 2px solid var(--border);
+      flex-shrink: 0;
+    }
+    .phone-checkbox.checked {
+      background: var(--teal);
+      border-color: var(--teal);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .phone-checkbox.checked::after {
+      content: '✓';
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    /* ── Stats bar ── */
+    .stats {
+      background: var(--teal-light);
+      padding: 32px 24px;
+    }
+    .stats-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 24px;
+    }
+    .stat { text-align: center; }
+    .stat-number {
+      font-size: 32px;
+      font-weight: 900;
+      color: var(--teal-dark);
+      letter-spacing: -1px;
+    }
+    .stat-label { font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Features ── */
+    .section {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 80px 24px;
+    }
+    .section-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--teal);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(28px, 4vw, 40px);
+      font-weight: 900;
+      letter-spacing: -1px;
+      margin-bottom: 16px;
+    }
+    .section-sub {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 560px;
+      margin-bottom: 56px;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px 24px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .feature-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.08);
+    }
+    .feature-icon {
+      width: 48px; height: 48px;
+      background: var(--teal-light);
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px;
+      margin-bottom: 16px;
+    }
+    .feature-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+    .feature-desc {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ── How it works ── */
+    .how-bg { background: var(--card); }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      counter-reset: steps;
+    }
+    .step { text-align: center; }
+    .step-num {
+      width: 52px; height: 52px;
+      background: var(--teal);
+      color: #fff;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      font-weight: 900;
+      margin: 0 auto 20px;
+    }
+    .step-title { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+    .step-desc { font-size: 14px; color: var(--muted); line-height: 1.6; }
+
+    /* ── CTA ── */
+    .cta-section {
+      background: linear-gradient(135deg, #1AABA8 0%, #0E7A78 100%);
+      padding: 80px 24px;
+      text-align: center;
+    }
+    .cta-section h2 {
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: -1px;
+      margin-bottom: 16px;
+    }
+    .cta-section p {
+      font-size: 17px;
+      color: rgba(255,255,255,0.8);
+      margin-bottom: 36px;
+    }
+    .cta-buttons {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn-white {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 24px;
+      border-radius: 14px;
+      background: #fff;
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 15px;
+      transition: transform 0.2s;
+    }
+    .btn-white:hover { transform: translateY(-2px); }
+    .btn-white svg { width: 22px; height: 22px; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 24px;
+    }
+    .footer-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-links {
+      display: flex;
+      gap: 24px;
+    }
+    .footer-links a {
+      font-size: 14px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+    .footer-links a:hover { color: var(--teal); }
+    .footer-copy { font-size: 13px; color: var(--muted); }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .hero {
+        grid-template-columns: 1fr;
+        padding: 48px 20px 40px;
+        text-align: center;
+      }
+      .hero-buttons { justify-content: center; }
+      .hero-visual { order: -1; }
+      .phone-frame { width: 220px; height: 440px; }
+      .phone-content { width: 188px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: 1fr; }
+      .footer-inner { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <a href="/" class="nav-logo">
+    <div class="nav-logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    </div>
+    <span class="nav-logo-text">Listorix</span>
+  </a>
+  <a href="#download" class="nav-cta">Download Free</a>
+</nav>
+
+<!-- Hero -->
+<section>
+  <div class="hero">
+    <div class="hero-text">
+      <div class="hero-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        Free to use · No credit card needed
+      </div>
+      <h1>Stop <span>overspending</span> on groceries</h1>
+      <p>See your total before you reach the billing counter. Add items, track spending, adjust as you shop.</p>
+      <div class="hero-buttons" id="download">
+        <a href="#" class="btn-store">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+          <div class="btn-store-text">
+            <span class="btn-store-sub">Download on the</span>
+            <span class="btn-store-name">App Store</span>
+          </div>
+        </a>
+        <a href="#" class="btn-store outline">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.18 23.76c.3.17.64.22.99.14l12.82-7.4-2.82-2.82-10.99 10.08zM.35 1.15C.13 1.53 0 2.02 0 2.62v18.76c0 .6.13 1.09.36 1.47l.07.07 10.51-10.51v-.25L.42 1.08l-.07.07zM20.65 10.35l-2.83-1.63-3.17 3.17 3.17 3.17 2.85-1.65c.81-.47.81-1.23-.02-1.06zM3.18.24L16 7.64l-2.82 2.82L2.19.38c.36-.22.74-.24.99-.14z"/></svg>
+          <div class="btn-store-text">
+            <span class="btn-store-sub">Get it on</span>
+            <span class="btn-store-name">Google Play</span>
+          </div>
+        </a>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="phone-wrap">
+        <div class="phone-frame">
+          <div class="phone-content">
+            <div class="phone-amount">₹340 left</div>
+            <div class="phone-item">
+              <div class="phone-checkbox checked"></div>
+              <span class="phone-item-emoji">🥛</span>
+              <div class="phone-item-info">
+                <div class="phone-item-name">Milk</div>
+                <div class="phone-item-qty">2L · Dairy</div>
+              </div>
+              <div class="phone-item-price">₹60</div>
+            </div>
+            <div class="phone-item">
+              <div class="phone-checkbox"></div>
+              <span class="phone-item-emoji">🍅</span>
+              <div class="phone-item-info">
+                <div class="phone-item-name">Tomatoes</div>
+                <div class="phone-item-qty">500g · Vegetables</div>
+              </div>
+              <div class="phone-item-price">₹40</div>
+            </div>
+            <div class="phone-item">
+              <div class="phone-checkbox"></div>
+              <span class="phone-item-emoji">🧀</span>
+              <div class="phone-item-info">
+                <div class="phone-item-name">Paneer</div>
+                <div class="phone-item-qty">200g · Dairy</div>
+              </div>
+              <div class="phone-item-price">₹120</div>
+            </div>
+            <div class="phone-item">
+              <div class="phone-checkbox"></div>
+              <span class="phone-item-emoji">🍪</span>
+              <div class="phone-item-info">
+                <div class="phone-item-name">Biscuits</div>
+                <div class="phone-item-qty">2 packs · Snacks</div>
+              </div>
+              <div class="phone-item-price">₹45</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Stats -->
+<div class="stats">
+  <div class="stats-inner">
+    <div class="stat">
+      <div class="stat-number">100%</div>
+      <div class="stat-label">Free to use</div>
+    </div>
+    <div class="stat">
+      <div class="stat-number">Offline</div>
+      <div class="stat-label">Works without internet</div>
+    </div>
+    <div class="stat">
+      <div class="stat-number">Real-time</div>
+      <div class="stat-label">Family list sharing</div>
+    </div>
+    <div class="stat">
+      <div class="stat-number">₹0</div>
+      <div class="stat-label">No hidden charges</div>
+    </div>
+  </div>
+</div>
+
+<!-- Features -->
+<section class="section">
+  <div class="section-label">Features</div>
+  <h2 class="section-title">Everything you need at the store</h2>
+  <p class="section-sub">Built for Indian grocery shopping — with support for ₹ pricing, local categories, and voice input in Indian languages.</p>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">🎙️</div>
+      <div class="feature-title">Voice Add</div>
+      <div class="feature-desc">Say "1 kilo cheeni, 2 litre doodh" and items are added instantly. Supports Hindi, Tamil, Telugu and more.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📸</div>
+      <div class="feature-title">Scan Receipts</div>
+      <div class="feature-desc">Photograph your bill and Listorix extracts all items automatically — saving you time on manual entry.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">👨‍👩‍👧</div>
+      <div class="feature-title">Share with Family</div>
+      <div class="feature-desc">Share your list with family members. Updates sync in real-time so everyone sees the latest list.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">💰</div>
+      <div class="feature-title">Budget Tracking</div>
+      <div class="feature-desc">Set a trip budget and see how much you have left as you add items. No more billing counter surprises.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <div class="feature-title">Spending Insights</div>
+      <div class="feature-desc">See where your money goes — by category, by month. Understand your grocery habits over time.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🔄</div>
+      <div class="feature-title">Repeat Last Trip</div>
+      <div class="feature-desc">One tap to repeat your last grocery trip. Your regular items are added instantly — no retyping needed.</div>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<div class="how-bg">
+  <section class="section">
+    <div class="section-label">How it works</div>
+    <h2 class="section-title">Three steps to smarter shopping</h2>
+    <p class="section-sub">No account needed to get started. Just open the app and begin.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-title">Add your items</div>
+        <div class="step-desc">Type, speak, or scan a receipt. Add items with quantities and prices in seconds.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-title">Shop & check off</div>
+        <div class="step-desc">Tick items as you pick them up. Your running total updates live so you always know where you stand.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-title">Review & repeat</div>
+        <div class="step-desc">Your history is saved automatically. Repeat last trip or check your spending trends anytime.</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- CTA -->
+<div class="cta-section">
+  <h2>Ready to shop smarter?</h2>
+  <p>Download Listorix free — no account, no credit card, no nonsense.</p>
+  <div class="cta-buttons">
+    <a href="#" class="btn-white">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+      App Store
+    </a>
+    <a href="#" class="btn-white">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.18 23.76c.3.17.64.22.99.14l12.82-7.4-2.82-2.82-10.99 10.08zM.35 1.15C.13 1.53 0 2.02 0 2.62v18.76c0 .6.13 1.09.36 1.47l.07.07 10.51-10.51v-.25L.42 1.08l-.07.07zM20.65 10.35l-2.83-1.63-3.17 3.17 3.17 3.17 2.85-1.65c.81-.47.81-1.23-.02-1.06zM3.18.24L16 7.64l-2.82 2.82L2.19.38c.36-.22.74-.24.99-.14z"/></svg>
+      Google Play
+    </a>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-inner">
+    <a href="/" class="nav-logo" style="text-decoration:none;">
+      <div class="nav-logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+      <span class="nav-logo-text">Listorix</span>
+    </a>
+    <div class="footer-links">
+      <a href="/privacy">Privacy Policy</a>
+      <a href="/terms">Terms of Service</a>
+      <a href="mailto:support@listorix.app">Contact</a>
+    </div>
+    <div class="footer-copy">© 2026 Listorix. Made in India 🇮🇳</div>
+  </div>
+</footer>
+
+</body>
+</html>
