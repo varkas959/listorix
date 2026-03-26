@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contact – Listorix</title>
+  <meta name="description" content="Get in touch with the Listorix team. We're here to help." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --teal: #1AABA8; --teal-dark: #148F8C; --teal-light: #E6F7F7;
+      --text: #0F172A; --muted: #64748B; --border: #E2E8F0; --bg: #FFFFFF; --card: #F8FAFB;
+    }
+    body { font-family: 'Inter', sans-serif; color: var(--text); background: var(--bg); line-height: 1.6; }
+
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(255,255,255,0.92); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px; height: 64px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .nav-logo-icon {
+      width: 36px; height: 36px; background: var(--teal);
+      border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    }
+    .nav-logo-icon svg { width: 20px; height: 20px; }
+    .nav-logo-text { font-size: 18px; font-weight: 800; color: var(--text); letter-spacing: -0.4px; }
+    .nav-back { font-size: 14px; font-weight: 600; color: var(--teal); text-decoration: none; }
+    .nav-back:hover { text-decoration: underline; }
+
+    .page { max-width: 760px; margin: 0 auto; padding: 60px 24px 100px; }
+    .page-label { font-size: 13px; font-weight: 700; color: var(--teal); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+    .page-title { font-size: 36px; font-weight: 900; letter-spacing: -1px; margin-bottom: 6px; }
+    .page-sub { font-size: 16px; color: var(--muted); margin-bottom: 48px; line-height: 1.6; }
+
+    /* Contact cards */
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 48px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 18px; padding: 28px 24px;
+    }
+    .card-icon {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: var(--teal-light); display: flex; align-items: center; justify-content: center;
+      font-size: 22px; margin-bottom: 16px;
+    }
+    .card-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+    .card-body { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 16px; }
+    .card-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 14px; font-weight: 600; color: var(--teal);
+      text-decoration: none;
+    }
+    .card-link:hover { text-decoration: underline; }
+    .card-link svg { width: 14px; height: 14px; }
+
+    /* Email highlight block */
+    .email-block {
+      background: var(--teal-light); border-radius: 16px;
+      border-left: 4px solid var(--teal);
+      padding: 24px 28px; margin-bottom: 48px;
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    .email-block-icon { font-size: 28px; flex-shrink: 0; }
+    .email-block-text { flex: 1; }
+    .email-block-label { font-size: 13px; font-weight: 600; color: var(--teal); margin-bottom: 4px; }
+    .email-block-addr {
+      font-size: 18px; font-weight: 800; color: var(--text); letter-spacing: -0.3px;
+    }
+    .email-block-addr a { color: var(--teal); text-decoration: none; }
+    .email-block-addr a:hover { text-decoration: underline; }
+    .email-block-note { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+    /* Response time */
+    .response-row {
+      display: flex; gap: 12px; margin-bottom: 48px; flex-wrap: wrap;
+    }
+    .response-pill {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 50px; padding: 10px 18px;
+      font-size: 13px; font-weight: 600; color: var(--muted);
+    }
+    .response-pill .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #22C55E; flex-shrink: 0;
+    }
+
+    .section { margin-bottom: 40px; }
+    .section-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+    .section-body { font-size: 15px; color: var(--muted); line-height: 1.8; }
+
+    .faq-item { margin-bottom: 20px; }
+    .faq-q { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .faq-a { font-size: 14px; color: var(--muted); line-height: 1.7; }
+
+    footer { border-top: 1px solid var(--border); padding: 32px 24px; }
+    .footer-inner { max-width: 760px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .footer-links { display: flex; gap: 20px; }
+    .footer-links a { font-size: 13px; color: var(--muted); text-decoration: none; }
+    .footer-links a:hover { color: var(--teal); }
+    .footer-copy { font-size: 13px; color: var(--muted); }
+
+    @media (max-width: 600px) {
+      .page { padding: 40px 16px 80px; }
+      .page-title { font-size: 28px; }
+      .cards { grid-template-columns: 1fr; }
+      .footer-inner { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">
+    <div class="nav-logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    </div>
+    <span class="nav-logo-text">Listorix</span>
+  </a>
+  <a href="/" class="nav-back">← Back to home</a>
+</nav>
+
+<div class="page">
+
+  <div class="page-label">Get in touch</div>
+  <h1 class="page-title">Contact Us</h1>
+  <p class="page-sub">We're a small team and we read every message. Reach out anytime — we'll get back to you as quickly as we can.</p>
+
+  <!-- Primary email block -->
+  <div class="email-block">
+    <div class="email-block-icon">✉️</div>
+    <div class="email-block-text">
+      <div class="email-block-label">Support email</div>
+      <div class="email-block-addr"><a href="mailto:support@listorix.com">support@listorix.com</a></div>
+      <div class="email-block-note">For all enquiries — app support, feedback, account, or business</div>
+    </div>
+  </div>
+
+  <!-- Response time pills -->
+  <div class="response-row">
+    <div class="response-pill"><span class="dot"></span>Typically reply within 24–48 hours</div>
+    <div class="response-pill"><span class="dot"></span>Monday – Saturday</div>
+    <div class="response-pill"><span class="dot"></span>India Standard Time (IST)</div>
+  </div>
+
+  <!-- Cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="card-icon">🐛</div>
+      <div class="card-title">Report a bug</div>
+      <div class="card-body">Found something broken? Tell us what happened and we'll fix it in the next update.</div>
+      <a href="mailto:support@listorix.com?subject=Bug%20Report%20%E2%80%93%20Listorix" class="card-link">
+        Send bug report
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+    </div>
+    <div class="card">
+      <div class="card-icon">💡</div>
+      <div class="card-title">Feature request</div>
+      <div class="card-body">Have an idea that would make Listorix better? We'd love to hear it.</div>
+      <a href="mailto:support@listorix.com?subject=Feature%20Request%20%E2%80%93%20Listorix" class="card-link">
+        Share your idea
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔐</div>
+      <div class="card-title">Account & data</div>
+      <div class="card-body">Need to delete your account, export your data, or ask about privacy?</div>
+      <a href="mailto:support@listorix.com?subject=Account%20Request%20%E2%80%93%20Listorix" class="card-link">
+        Contact us
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+    </div>
+    <div class="card">
+      <div class="card-icon">🤝</div>
+      <div class="card-title">Business enquiries</div>
+      <div class="card-body">Partnership, press, or anything else? Drop us a line.</div>
+      <a href="mailto:support@listorix.com?subject=Business%20Enquiry%20%E2%80%93%20Listorix" class="card-link">
+        Get in touch
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <!-- FAQ -->
+  <div class="section">
+    <div class="section-title">Common questions</div>
+    <div class="faq-item">
+      <div class="faq-q">How do I delete my account?</div>
+      <div class="faq-a">Go to the app → Profile → scroll to the bottom → tap "Delete Account". Your data will be permanently removed within 30 days. Or email us and we'll handle it manually.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">My data isn't syncing — what should I do?</div>
+      <div class="faq-a">Sign out and sign back in to refresh your session. If the issue persists, email us with your device model and app version (visible on the Profile screen).</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Can I use Listorix without creating an account?</div>
+      <div class="faq-a">Yes. Your grocery list is saved locally on your device with no account required. Signing in enables cloud sync across devices.</div>
+    </div>
+    <div class="faq-item">
+      <div class="faq-q">Is there an Android version?</div>
+      <div class="faq-a">An Android version is in the works. Sign up to be notified when it launches.</div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <div class="footer-inner">
+    <a href="/" class="nav-logo">
+      <div class="nav-logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      </div>
+      <span class="nav-logo-text">Listorix</span>
+    </a>
+    <div class="footer-links">
+      <a href="/privacy">Privacy Policy</a>
+      <a href="/terms">Terms of Service</a>
+      <a href="/contact">Contact</a>
+    </div>
+    <div class="footer-copy">© 2026 Listorix. Made in India 🇮🇳</div>
+  </div>
+</footer>
+
+</body>
+</html>
