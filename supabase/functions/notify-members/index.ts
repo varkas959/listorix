@@ -44,7 +44,7 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: cors });
     }
 
-    const { group_id, list_id, item_name } = await req.json();
+    const { group_id, list_id, item_name, item_id } = await req.json();
     if (!item_name) {
       return new Response(JSON.stringify({ error: 'Missing item_name' }), { status: 400, headers: cors });
     }
@@ -118,7 +118,8 @@ serve(async (req: Request) => {
       to,
       title: '🛒 New item added',
       body:  `${actorName} added "${item_name}" to the list`,
-      data:  { group_id, list_id },
+      categoryId: 'family-list-update',
+      data:  { group_id, list_id, item_id },
       sound: 'default',
     }));
 

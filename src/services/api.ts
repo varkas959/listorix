@@ -551,6 +551,7 @@ export async function notifyGroupMembers(
   groupId: string,
   listId: string,
   itemName: string,
+  itemId?: string | null,
 ): Promise<void> {
   try {
     const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
@@ -564,7 +565,7 @@ export async function notifyGroupMembers(
         Authorization:  `Bearer ${jwt}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ group_id: groupId, list_id: listId, item_name: itemName }),
+      body: JSON.stringify({ group_id: groupId, list_id: listId, item_name: itemName, item_id: itemId ?? null }),
     }).catch(() => {}); // truly fire-and-forget
   } catch { /* non-critical */ }
 }

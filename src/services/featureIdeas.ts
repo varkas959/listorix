@@ -27,6 +27,12 @@ interface FeatureIdeasState {
   votedIdeaIds: string[];
 }
 
+const FEATURE_IDEAS_CACHE_TTL_MS = 30_000;
+
+let cachedIdeasState: FeatureIdeasState | null = null;
+let cachedIdeasUserId: string | undefined;
+let cachedIdeasAt = 0;
+
 interface ToggleVoteResult {
   idea_id: string;
   vote_count: number;
@@ -80,23 +86,40 @@ async function loadVotedIdeaIds(userId?: string): Promise<string[]> {
 }
 
 export async function loadFeatureIdeas(userId?: string): Promise<FeatureIdeasState> {
-  const { data, error } = await supabase
-    .from('feature_ideas')
-    .select('id, title, description, vote_count, status, created_at, source')
-    .order('vote_count', { ascending: false })
-    .order('title', { ascending: true })
-    .returns<DbFeatureIdea[]>();
+  const now = Date.now();
+  if (
+    cachedIdeasState &&
+    cachedIdeasUserId === userId &&
+    now - cachedIdeasAt < FEATURE_IDEAS_CACHE_TTL_MS
+  ) {
+    return cachedIdeasState;
+  }
+
+  const [ideasResult, votedIdeaIds] = await Promise.all([
+    supabase
+      .from('feature_ideas')
+      .select('id, title, description, vote_count, status, created_at, source')
+      .order('vote_count', { ascending: false })
+      .order('title', { ascending: true })
+      .returns<DbFeatureIdea[]>(),
+    loadVotedIdeaIds(userId),
+  ]);
+
+  const { data, error } = ideasResult;
 
   if (error) {
     console.warn('[featureIdeas] load ideas:', error.message);
-    return { ideas: [], votedIdeaIds: [] };
+    return cachedIdeasState ?? { ideas: [], votedIdeaIds: [] };
   }
 
-  const votedIdeaIds = await loadVotedIdeaIds(userId);
-  return {
+  const nextState = {
     ideas: sortIdeas((data ?? []).map(mapIdea)),
     votedIdeaIds,
   };
+  cachedIdeasState = nextState;
+  cachedIdeasUserId = userId;
+  cachedIdeasAt = now;
+  return nextState;
 }
 
 export async function toggleFeatureIdeaVote(

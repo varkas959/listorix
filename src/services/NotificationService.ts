@@ -16,6 +16,55 @@ Notifications.setNotificationHandler({
 });
 
 const WEEKLY_REMINDER_ID = 'listorix-weekly-reminder';
+export const FAMILY_LIST_CATEGORY_ID = 'family-list-update';
+export const OPEN_FAMILY_LIST_ACTION_ID = 'OPEN_FAMILY_LIST';
+export const MARK_FAMILY_ITEM_DONE_ACTION_ID = 'MARK_FAMILY_ITEM_DONE';
+
+export interface NotificationNavigationPayload {
+  group_id?: string;
+  list_id?: string;
+  item_id?: string;
+}
+
+export async function initializeNotificationActions(): Promise<void> {
+  await Notifications.setNotificationCategoryAsync(
+    FAMILY_LIST_CATEGORY_ID,
+    [
+      {
+        identifier: OPEN_FAMILY_LIST_ACTION_ID,
+        buttonTitle: 'Open Family List',
+        options: {
+          opensAppToForeground: true,
+        },
+      },
+      {
+        identifier: MARK_FAMILY_ITEM_DONE_ACTION_ID,
+        buttonTitle: 'Mark Bought',
+        options: {
+          opensAppToForeground: false,
+        },
+      },
+    ],
+  );
+}
+
+export async function showMarkBoughtConfirmation(itemName: string): Promise<void> {
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Marked as bought',
+        body: `${itemName} was checked off in Listorix.`,
+        sound: false,
+      },
+      trigger: null,
+    });
+  } catch {
+    // Non-critical confirmation only.
+  }
+}
 
 /**
  * Request notification permissions from the user.

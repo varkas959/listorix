@@ -64,7 +64,8 @@ export const FAB = forwardRef<FABHandle, Props>(function FAB({ onVoice, onManual
   }
 
   function handleOption(action: () => void) {
-    close(action);
+    action();
+    close();
   }
 
   const rotate = rotation.interpolate({

@@ -54,6 +54,13 @@ const STORE_OPTIONS = [
   { key: 'online',      label: 'Online',        sub: 'Blinkit, Zepto, Instamart' },
 ];
 
+const SUPPORT_EMAIL = 'support@listorix.com';
+
+function openSupportEmail(subject: string, body?: string) {
+  const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}${body ? `&body=${encodeURIComponent(body)}` : ''}`;
+  Linking.openURL(mailto).catch(() => undefined);
+}
+
 // ── Budget input modal ────────────────────────────────────────────────────────
 function BudgetModal({
   visible,
@@ -115,10 +122,12 @@ function FeedbackModal({
   visible,
   userId,
   onClose,
+  onEmailFallback,
 }: {
   visible: boolean;
   userId: string | undefined;
   onClose: () => void;
+  onEmailFallback: (message: string, rating: number) => void;
 }) {
   const [rating,      setRating]  = useState(0);
   const [message,     setMessage] = useState('');
@@ -133,20 +142,27 @@ function FeedbackModal({
     }
     setSubmit(true);
     try {
-      console.log('[feedback] starting insert, userId:', userId);
       const { error } = await supabase.from('feedback').insert({
         user_id: userId ?? null,
         rating:  rating > 0 ? rating : null,
         message: message.trim(),
       });
-      console.log('[feedback] error:', JSON.stringify(error));
       if (error) throw error;
       Alert.alert('Thank you!', 'Your feedback has been received.');
       reset();
       onClose();
-    } catch (err) {
-      console.error('[feedback] caught:', JSON.stringify(err));
-      Alert.alert('Failed', 'Could not submit feedback. Please try again.');
+    } catch {
+      Alert.alert(
+        'Could not send in-app feedback',
+        'You can still send this message to support by email.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Email Support',
+            onPress: () => onEmailFallback(message.trim(), rating),
+          },
+        ],
+      );
     } finally {
       setSubmit(false);
     }
@@ -226,6 +242,14 @@ function statusMeta(status: FeatureIdeaStatus): { label: string; toneStyle: obje
   }
 }
 
+function stableIdeaHash(id: string): number {
+  let hash = 0;
+  for (const char of id) {
+    hash = (hash * 31 + char.charCodeAt(0)) % 997;
+  }
+  return hash;
+}
+
 function IdeasModal({
   visible,
   onClose,
@@ -239,24 +263,63 @@ function IdeasModal({
   const [votedIdeaIds, setVotedIdeaIds] = useState<string[]>([]);
   const [ideaTitle, setIdeaTitle] = useState('');
   const [ideaDescription, setIdeaDescription] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const syncIdeas = useCallback(async () => {
-    setLoading(true);
+    const shouldShowBlockingLoader = ideas.length === 0 && !hasLoadedOnce;
+    if (shouldShowBlockingLoader) {
+      setLoading(true);
+    }
     try {
       const state = await loadFeatureIdeas(userId);
       setIdeas(state.ideas);
       setVotedIdeaIds(state.votedIdeaIds);
+      setHasLoadedOnce(true);
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [hasLoadedOnce, ideas.length, userId]);
 
   useEffect(() => {
     if (!visible) return;
     syncIdeas();
   }, [visible, syncIdeas]);
+
+  const orderedIdeas = [...ideas].sort((a, b) => {
+    if (b.votes !== a.votes) return b.votes - a.votes;
+    return a.title.localeCompare(b.title);
+  });
+
+  const displayVoteCounts = new Map<string, number>();
+  let previousDisplay = 50;
+  orderedIdeas.forEach((idea, index) => {
+    if (idea.votes < 10) {
+      const value = Math.max(1, idea.votes);
+      displayVoteCounts.set(idea.id, Math.min(value, previousDisplay - 1 || value));
+      previousDisplay = displayVoteCounts.get(idea.id) ?? previousDisplay;
+      return;
+    }
+
+    if (idea.votes < 50) {
+      const value = Math.min(idea.votes, previousDisplay - 1);
+      const nextValue = Math.max(10, value);
+      displayVoteCounts.set(idea.id, nextValue);
+      previousDisplay = nextValue;
+      return;
+    }
+
+    const tierFloor = Math.max(10, 49 - index * 4);
+    const tierCeiling = Math.max(tierFloor, previousDisplay - 1);
+    const span = Math.max(1, Math.min(4, tierCeiling - tierFloor + 1));
+    const offset = stableIdeaHash(idea.id) % span;
+    const nextValue = Math.max(tierFloor, tierCeiling - offset);
+    displayVoteCounts.set(idea.id, nextValue);
+    previousDisplay = nextValue;
+  });
+
+  const showLoadingState = ideas.length === 0 && (loading || (visible && !hasLoadedOnce));
 
   async function handleVote(ideaId: string) {
     try {
@@ -320,11 +383,11 @@ function IdeasModal({
               <View style={{ flex: 1 }}>
                 <Text style={styles.ideasTitle}>Community Ideas</Text>
                 <Text style={styles.ideasSubtitle}>
-                  Most-requested ideas help guide what we build next for Listorix.
+                  Vote on ideas and suggest what Listorix should build next.
                 </Text>
               </View>
               <TouchableOpacity style={styles.ideasCloseBtn} onPress={onClose} activeOpacity={0.8}>
-                <Text style={styles.ideasCloseText}>X</Text>
+                <Text style={styles.ideasCloseText}>{'\u00D7'}</Text>
               </TouchableOpacity>
             </View>
 
@@ -334,44 +397,11 @@ function IdeasModal({
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              <View style={styles.ideaComposer}>
-                <Text style={styles.ideaComposerTitle}>Share a new idea</Text>
-                <TextInput
-                  style={styles.ideaComposerInput}
-                  value={ideaTitle}
-                  onChangeText={setIdeaTitle}
-                  placeholder="What should Listorix build next?"
-                  placeholderTextColor={Colors.textTertiary}
-                  maxLength={80}
-                />
-                <TextInput
-                  style={[styles.ideaComposerInput, styles.ideaComposerTextarea]}
-                  value={ideaDescription}
-                  onChangeText={setIdeaDescription}
-                  placeholder="Optional: add a little context"
-                  placeholderTextColor={Colors.textTertiary}
-                  multiline
-                  numberOfLines={3}
-                  maxLength={180}
-                  textAlignVertical="top"
-                />
-                <TouchableOpacity
-                  style={[styles.ideaComposerButton, submitting && styles.ideaComposerButtonDisabled]}
-                  onPress={handleSubmitIdea}
-                  disabled={submitting}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.ideaComposerButtonText}>
-                    {submitting ? 'Adding...' : 'Add idea'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
               <View style={styles.ideaList}>
-                {loading ? (
+                {showLoadingState ? (
                   <Text style={styles.ideaLoading}>Loading ideas...</Text>
                 ) : (
-                  ideas.map(idea => {
+                  orderedIdeas.map(idea => {
                     const hasVoted = votedIdeaIds.includes(idea.id);
                     const meta = statusMeta(idea.status);
 
@@ -384,7 +414,7 @@ function IdeasModal({
                         >
                           <Text style={[styles.ideaVoteArrow, hasVoted && styles.ideaVoteArrowActive]}>^</Text>
                           <Text style={[styles.ideaVoteCount, hasVoted && styles.ideaVoteCountActive]}>
-                            {idea.votes}
+                            {displayVoteCounts.get(idea.id) ?? 1}
                           </Text>
                         </TouchableOpacity>
 
@@ -405,6 +435,41 @@ function IdeasModal({
                   })
                 )}
               </View>
+
+              {!showLoadingState && (
+                <View style={styles.ideaComposer}>
+                  <Text style={styles.ideaComposerTitle}>Share a new idea</Text>
+                  <TextInput
+                    style={styles.ideaComposerInput}
+                    value={ideaTitle}
+                    onChangeText={setIdeaTitle}
+                    placeholder="What should Listorix build next?"
+                    placeholderTextColor={Colors.textTertiary}
+                    maxLength={80}
+                  />
+                  <TextInput
+                    style={[styles.ideaComposerInput, styles.ideaComposerTextarea]}
+                    value={ideaDescription}
+                    onChangeText={setIdeaDescription}
+                    placeholder="Optional: add a little context"
+                    placeholderTextColor={Colors.textTertiary}
+                    multiline
+                    numberOfLines={3}
+                    maxLength={180}
+                    textAlignVertical="top"
+                  />
+                  <TouchableOpacity
+                    style={[styles.ideaComposerButton, submitting && styles.ideaComposerButtonDisabled]}
+                    onPress={handleSubmitIdea}
+                    disabled={submitting}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.ideaComposerButtonText}>
+                      {submitting ? 'Adding...' : 'Add idea'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -429,6 +494,14 @@ export default function ProfileScreen() {
   const { currencyCode, currencySymbol, locale } = useCurrencySettings();
 
   const t = getTranslations('en');
+
+  function emailFeedbackFallback(feedbackMessage: string, feedbackRating: number) {
+    const ratingLine = feedbackRating > 0 ? `Rating: ${feedbackRating}/5\n\n` : '';
+    openSupportEmail(
+      'Listorix Feedback',
+      `${ratingLine}${feedbackMessage}`.trim(),
+    );
+  }
 
   // ── Load all preferences ──────────────────────────────────────────────────
   async function loadPrefs() {
@@ -623,7 +696,14 @@ export default function ProfileScreen() {
                     } catch (e) {
                       Alert.alert(
                         'Could not delete account',
-                        'Please contact support@listorix.com to delete your account.',
+                        'Please email support and we will help delete your account.',
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          {
+                            text: 'Email Support',
+                            onPress: () => openSupportEmail('Delete my Listorix account'),
+                          },
+                        ],
                       );
                     }
                   },
@@ -694,8 +774,8 @@ export default function ProfileScreen() {
       title: 'Support',
       items: [
         {
-          label: 'Help Shape Listorix',
-          value: 'Vote on ideas and suggest new ones',
+          label: 'Vote on ideas and suggest',
+          value: '',
           onPress: () => setIdeasModal(true),
           arrow: true,
         },
@@ -707,8 +787,8 @@ export default function ProfileScreen() {
         },
         {
           label: 'Contact Support',
-          value: 'support@listorix.com',
-          onPress: () => Linking.openURL('mailto:support@listorix.com?subject=Support%20Request%20%E2%80%93%20Listorix'),
+          value: SUPPORT_EMAIL,
+          onPress: () => openSupportEmail('Support Request - Listorix'),
           arrow: true,
         },
       ],
@@ -744,6 +824,7 @@ export default function ProfileScreen() {
       <FeedbackModal
         visible={feedbackModal}
         userId={user?.id}
+        onEmailFallback={emailFeedbackFallback}
         onClose={() => setFeedbackModal(false)}
       />
       <IdeasModal
@@ -991,7 +1072,7 @@ const styles = StyleSheet.create({
 
   ideasOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.36)',
+    backgroundColor: 'transparent',
     justifyContent: 'flex-end',
   },
   ideasSheetWrap: {
@@ -1001,17 +1082,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingTop: 14,
+    paddingTop: 12,
     paddingHorizontal: Spacing.md,
-    paddingBottom: 18,
-    minHeight: '74%',
-    maxHeight: '88%',
+    paddingBottom: 12,
+    minHeight: '88%',
+    maxHeight: '96%',
   },
   ideasHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   ideasTitle: {
     fontSize: 24,
@@ -1020,30 +1101,33 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   ideasSubtitle: {
-    marginTop: 4,
+    marginTop: 6,
     fontSize: 13,
     lineHeight: 18,
     color: Colors.textSecondary,
   },
   ideasCloseBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: Colors.bg,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F6FB',
+    borderWidth: 1,
+    borderColor: 'rgba(15, 23, 42, 0.06)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   ideasCloseText: {
-    fontSize: 24,
-    lineHeight: 26,
+    fontSize: 20,
+    lineHeight: 20,
     color: Colors.textSecondary,
+    marginTop: -1,
   },
   ideasScroll: {
     flex: 1,
   },
   ideasScrollContent: {
-    paddingBottom: 24,
-    gap: 12,
+    paddingBottom: 8,
+    gap: 10,
   },
   ideaComposer: {
     backgroundColor: '#F8FAFC',
@@ -1087,7 +1171,7 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   ideaList: {
-    gap: 10,
+    gap: 8,
   },
   ideaLoading: {
     paddingVertical: 18,
@@ -1097,36 +1181,37 @@ const styles = StyleSheet.create({
   },
   ideaRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
     alignItems: 'flex-start',
     backgroundColor: Colors.surface,
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.border,
-    padding: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
   ideaVotePill: {
-    width: 58,
-    minHeight: 68,
-    borderRadius: 18,
+    width: 52,
+    minHeight: 60,
+    borderRadius: 16,
     backgroundColor: Colors.bg,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    gap: 2,
+    paddingVertical: 6,
+    gap: 1,
   },
   ideaVotePillActive: {
     backgroundColor: '#E8F1FF',
   },
   ideaVoteArrow: {
-    fontSize: 13,
+    fontSize: 12,
     color: Colors.textTertiary,
   },
   ideaVoteArrowActive: {
     color: Colors.primary,
   },
   ideaVoteCount: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
     color: Colors.textPrimary,
   },
@@ -1135,34 +1220,34 @@ const styles = StyleSheet.create({
   },
   ideaBody: {
     flex: 1,
-    gap: 6,
+    gap: 4,
   },
   ideaTitleRow: {
-    gap: 8,
+    gap: 6,
   },
   ideaTitleText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: Colors.textPrimary,
-    lineHeight: 21,
+    lineHeight: 19,
   },
   ideaDescriptionText: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     color: Colors.textSecondary,
   },
   ideaMetaText: {
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.textTertiary,
   },
   ideaStatusPill: {
     alignSelf: 'flex-start',
     borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
   ideaStatusText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
   },
   ideaStatusOpen: {

@@ -76,7 +76,6 @@ export default function OnboardingScreen() {
       const redirectUri = __DEV__
         ? Linking.createURL('/auth/callback')
         : 'listorix://auth/callback';
-      console.log('[auth] redirectUri:', redirectUri);
 
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',

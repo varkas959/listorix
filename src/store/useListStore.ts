@@ -312,7 +312,7 @@ export const useListStore = create<ListState>((set, get) => ({
 
         // Notify group members (or legacy list members for personal shared lists)
         if (isGroupCtx && groupId) {
-          notifyGroupMembers(groupId, activeList, newItem.name);
+          notifyGroupMembers(groupId, activeList, newItem.name, remoteId);
         }
       });
     }

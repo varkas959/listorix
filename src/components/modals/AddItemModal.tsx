@@ -20,7 +20,7 @@ import React, {
 } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, ScrollView,
-  StyleSheet, KeyboardAvoidingView, Platform, Pressable, Animated,
+  StyleSheet, Platform, Pressable, Animated, Keyboard,
   InteractionManager, Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -62,6 +62,7 @@ export function AddItemModal({ visible, onClose }: Props) {
   // Keeps sheet invisible until the open animation begins — prevents
   // the native-layer flash that happens before translateY commits.
   const sheetOpacity    = useRef(new Animated.Value(0)).current;
+  const keyboardInset   = useRef(new Animated.Value(0)).current;
   const debounceTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const interactionTask = useRef<ReturnType<typeof InteractionManager.runAfterInteractions> | null>(null);
 
@@ -73,13 +74,13 @@ export function AddItemModal({ visible, onClose }: Props) {
       // ── Step 2: snap sheet to position quickly ────────────────────────────
       Animated.parallel([
         Animated.timing(backdropOpacity, {
-          toValue: 1, duration: DURATION, useNativeDriver: true,
+          toValue: 1, duration: 160, useNativeDriver: true,
         }),
         Animated.timing(sheetOpacity, {
           toValue: 1, duration: 60, useNativeDriver: true,   // snap visible instantly
         }),
         Animated.timing(sheetY, {
-          toValue: 0, duration: DURATION,
+          toValue: 0, duration: 180,
           easing: Easing.out(Easing.cubic), useNativeDriver: true,
         }),
       ]).start();
@@ -108,6 +109,32 @@ export function AddItemModal({ visible, onClose }: Props) {
       });
     }
   }, [visible]);
+
+  useEffect(() => {
+    const animateKeyboardInset = (toValue: number, duration = 220) => {
+      Animated.timing(keyboardInset, {
+        toValue,
+        duration,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    };
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      animateKeyboardInset(event.endCoordinates.height, event.duration ?? 220);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, (event) => {
+      animateKeyboardInset(0, event.duration ?? 200);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [keyboardInset]);
 
   // Textarea → instant update; parsing → debounced 150ms
   const handleTextChange = useCallback((t: string) => {
@@ -200,19 +227,37 @@ export function AddItemModal({ visible, onClose }: Props) {
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
 
-      <KeyboardAvoidingView
-        style={styles.kavContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        pointerEvents="box-none"
-      >
+      <View style={styles.sheetHost} pointerEvents="box-none">
         <Animated.View
           style={[
             styles.sheet,
-            { paddingBottom: Math.max(insets.bottom, 16) },
-            { opacity: sheetOpacity, transform: [{ translateY: sheetY }] },
+            {
+              paddingBottom: Math.max(insets.bottom, 8),
+              bottom: keyboardInset,
+              opacity: sheetOpacity,
+              transform: [{ translateY: sheetY }],
+            },
           ]}
         >
           <View style={styles.handle} />
+
+          <View style={styles.textareaWrap}>
+            <TextInput
+              ref={inputRef}
+              style={styles.textarea}
+              value={text}
+              onChangeText={handleTextChange}
+              multiline
+              returnKeyType="next"
+              placeholder="Add items (one per line)"
+              placeholderTextColor="#C0C4CC"
+              textAlignVertical="top"
+              autoCapitalize="sentences"
+              autoCorrect={false}
+              selectionColor={Colors.primary}
+              scrollEnabled
+            />
+          </View>
 
           <View style={styles.header}>
             <Text style={styles.title}>Add items</Text>
@@ -223,23 +268,6 @@ export function AddItemModal({ visible, onClose }: Props) {
             >
               <IconClose size={16} color={Colors.textSecondary} />
             </TouchableOpacity>
-          </View>
-
-          <View style={styles.textareaWrap}>
-            <TextInput
-              ref={inputRef}
-              style={styles.textarea}
-              value={text}
-              onChangeText={handleTextChange}
-              multiline
-              placeholder="Add items (one per line)"
-              placeholderTextColor="#C0C4CC"
-              textAlignVertical="top"
-              autoCapitalize="sentences"
-              autoCorrect={false}
-              selectionColor={Colors.primary}
-              scrollEnabled
-            />
           </View>
 
           {chipsReady && (
@@ -259,7 +287,7 @@ export function AddItemModal({ visible, onClose }: Props) {
             </TouchableOpacity>
           </View>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </View>
     </View>
   );
 }
@@ -309,11 +337,15 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  kavContainer: {
-    flex: 1,
+  sheetHost: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
   },
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -330,14 +362,14 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: '#DDDDE0',
     alignSelf: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   title: {
     fontSize: 17,
@@ -357,7 +389,7 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.md,
     backgroundColor: '#F7F8FA',
     borderRadius: 12,
-    marginBottom: 8,
+    marginBottom: 0,
   },
   textarea: {
     minHeight: 148,
@@ -372,7 +404,7 @@ const styles = StyleSheet.create({
   },
   previewScroll: {
     maxHeight: 36,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   previewContent: {
     paddingHorizontal: Spacing.md,
@@ -402,8 +434,8 @@ const styles = StyleSheet.create({
   },
   actions: {
     paddingHorizontal: Spacing.md,
-    paddingTop: 4,
-    paddingBottom: 2,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   addBtn: {
     backgroundColor: Colors.primary,

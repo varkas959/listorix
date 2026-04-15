@@ -3,7 +3,7 @@ import React, {
 } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet,
-  Keyboard, Platform,
+  Keyboard, Platform, Animated, Easing,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,19 +31,52 @@ export default function AddItemsScreen() {
   const [text, setText]             = useState('');
   const [parsedText, setParsedText] = useState('');
   const [kbHeight, setKbHeight]     = useState(0);
+  const [contentReady, setContentReady] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const contentTranslate = useRef(new Animated.Value(24)).current;
 
   useEffect(() => {
+    let revealed = false;
+    const revealContent = () => {
+      if (revealed) return;
+      revealed = true;
+      setContentReady(true);
+      Animated.parallel([
+        Animated.timing(contentOpacity, {
+          toValue: 1,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(contentTranslate, {
+          toValue: 0,
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    };
+
     const subs = [
-      Keyboard.addListener('keyboardWillShow', (e) => setKbHeight(e.endCoordinates.height)),
-      Keyboard.addListener('keyboardDidShow',  (e) => setKbHeight(e.endCoordinates.height)),
+      Keyboard.addListener('keyboardWillShow', (e) => {
+        setKbHeight(e.endCoordinates.height);
+      }),
+      Keyboard.addListener('keyboardDidShow',  (e) => {
+        setKbHeight(e.endCoordinates.height);
+        setTimeout(revealContent, 90);
+      }),
       Keyboard.addListener('keyboardWillHide',  () => setKbHeight(0)),
       Keyboard.addListener('keyboardDidHide',   () => setKbHeight(0)),
     ];
-    // Focus after listeners are ready
-    const t = setTimeout(() => inputRef.current?.focus(), 200);
-    return () => { clearTimeout(t); subs.forEach(s => s.remove()); };
-  }, []);
+    const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
+    const revealTimer = setTimeout(revealContent, 480);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      clearTimeout(revealTimer);
+      subs.forEach(s => s.remove());
+    };
+  }, [contentOpacity, contentTranslate]);
 
   const handleTextChange = useCallback((t: string) => {
     setText(t);
@@ -121,13 +154,27 @@ export default function AddItemsScreen() {
     : 'Add items';
 
   return (
-    <View style={[
-      styles.screen,
-      {
-        paddingTop: insets.top + 10,
-        paddingBottom: kbHeight > 0 ? kbHeight + 10 : insets.bottom + 10,
-      },
-    ]}>
+    <View style={styles.screen}>
+      <TouchableOpacity
+        style={styles.backdrop}
+        activeOpacity={1}
+        onPress={() => {
+          Keyboard.dismiss();
+          router.back();
+        }}
+      />
+      <Animated.View
+        style={[
+          styles.sheet,
+          {
+            paddingTop: insets.top + 6,
+            paddingBottom: kbHeight > 0 ? kbHeight + 10 : insets.bottom + 10,
+            opacity: contentOpacity,
+            transform: [{ translateY: contentTranslate }],
+          },
+        ]}
+      >
+      <View style={styles.grabber} />
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerCopy}>
@@ -183,6 +230,7 @@ export default function AddItemsScreen() {
           {btnLabel}
         </Text>
       </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }
@@ -223,8 +271,32 @@ const Chip = memo(function Chip({
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'transparent',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.08)',
+  },
+  sheet: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: Spacing.md,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: '92%',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  grabber: {
+    alignSelf: 'center',
+    width: 42,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#D6DCE5',
+    marginBottom: 12,
   },
   header: {
     flexDirection: 'row',

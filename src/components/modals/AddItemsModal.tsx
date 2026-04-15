@@ -3,7 +3,7 @@ import React, {
 } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, StyleSheet, Animated, Keyboard, Easing, Platform,
+  ScrollView, StyleSheet, Animated, Keyboard, Easing, Platform, InputAccessoryView,
 } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { useListStore } from '../../store/useListStore';
@@ -22,6 +22,7 @@ const SHEET_HIDDEN_Y = 300;
 const SHEET_OPEN_MS = 180;
 const SHEET_CLOSE_MS = 180;
 const REVEAL_DELAY_MS = Platform.OS === 'ios' ? 45 : 0;
+const MANUAL_ADD_BUTTON_ACCESSORY_ID = 'manual-add-button-accessory';
 
 export function AddItemsModal({ visible, onClose }: Props) {
   const addItem = useListStore(s => s.addItem);
@@ -204,7 +205,8 @@ export function AddItemsModal({ visible, onClose }: Props) {
     ? `Add ${parsed.length} ${parsed.length === 1 ? 'item' : 'items'}`
     : 'Add items';
 
-  const bottomPad = kbHeight > 0 ? kbHeight + 10 : insets.bottom + 10;
+  const footerBottomPad = kbHeight > 0 ? kbHeight + 6 : insets.bottom + 10;
+  const showKeyboardAccessoryButton = Platform.OS === 'ios' && kbHeight > 0;
 
   // Always rendered — never unmounts so TextInput is always focusable
   return (
@@ -221,10 +223,10 @@ export function AddItemsModal({ visible, onClose }: Props) {
       </Animated.View>
 
       {/* Sheet — slides up with keyboard */}
-      <Animated.View
-        style={[
-          styles.sheet,
-          { paddingBottom: bottomPad, opacity: sheetOpacity, transform: [{ translateY: sheetSlide }] },
+        <Animated.View
+          style={[
+            styles.sheet,
+          { opacity: sheetOpacity, transform: [{ translateY: sheetSlide }] },
         ]}
       >
         <SafeAreaView style={{ flex: 1 }}>
@@ -237,7 +239,15 @@ export function AddItemsModal({ visible, onClose }: Props) {
           </View>
 
           {/* Scrollable: textarea + chips */}
-          <ScrollView style={styles.scrollArea} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollArea}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: footerBottomPad + 64 },
+            ]}
+          >
             <View style={styles.textareaWrap}>
               <TextInput
                 ref={inputRef}
@@ -245,6 +255,7 @@ export function AddItemsModal({ visible, onClose }: Props) {
                 value={text}
                 onChangeText={handleTextChange}
                 multiline
+                inputAccessoryViewID={Platform.OS === 'ios' ? MANUAL_ADD_BUTTON_ACCESSORY_ID : undefined}
                 placeholder="Add items (one per line)"
                 placeholderTextColor="#C0C4CC"
                 textAlignVertical="top"
@@ -257,18 +268,39 @@ export function AddItemsModal({ visible, onClose }: Props) {
           </ScrollView>
 
           {/* Sticky button */}
-          <TouchableOpacity
-            style={[styles.addBtn, !hasItems && styles.addBtnOff]}
-            onPress={handleAdd}
-            disabled={!hasItems}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.addBtnText, !hasItems && styles.addBtnTextOff]}>
-              {btnLabel}
-            </Text>
-          </TouchableOpacity>
+          {!showKeyboardAccessoryButton && (
+            <View style={[styles.footer, { bottom: footerBottomPad }]}>
+              <TouchableOpacity
+                style={[styles.addBtn, !hasItems && styles.addBtnOff]}
+                onPress={handleAdd}
+                disabled={!hasItems}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.addBtnText, !hasItems && styles.addBtnTextOff]}>
+                  {btnLabel}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </SafeAreaView>
       </Animated.View>
+
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID={MANUAL_ADD_BUTTON_ACCESSORY_ID}>
+          <View style={styles.buttonAccessoryBar}>
+            <TouchableOpacity
+              style={[styles.addBtn, styles.addBtnAccessory, !hasItems && styles.addBtnOff]}
+              onPress={handleAdd}
+              disabled={!hasItems}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.addBtnText, !hasItems && styles.addBtnTextOff]}>
+                {btnLabel}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
     </View>
   );
 }
@@ -317,19 +349,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 24,
-    marginBottom: 14,
+    marginTop: 18,
+    marginBottom: 10,
   },
   closeBtn: {
     width: 30, height: 30, borderRadius: 15,
     backgroundColor: Colors.bg,
     alignItems: 'center', justifyContent: 'center',
   },
-  scrollArea: { flex: 1, marginBottom: 10 },
+  scrollArea: { flex: 1 },
+  scrollContent: { paddingBottom: 72 },
   textareaWrap: {
     backgroundColor: '#F7F8FA',
     borderRadius: 12,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   textarea: {
     minHeight: 180,
@@ -350,6 +383,11 @@ const styles = StyleSheet.create({
   },
   chipText: { fontSize: 12, fontWeight: '500', color: Colors.primary },
   chipX: { fontSize: 14, color: Colors.primary, opacity: 0.6, lineHeight: 16 },
+  footer: {
+    position: 'absolute',
+    left: Spacing.md,
+    right: Spacing.md,
+  },
   addBtn: {
     backgroundColor: Colors.primary,
     borderRadius: 14, paddingVertical: 15, alignItems: 'center',
@@ -360,4 +398,16 @@ const styles = StyleSheet.create({
   addBtnOff: { backgroundColor: '#F0F1F3', shadowOpacity: 0, elevation: 0 },
   addBtnText: { fontSize: 16, fontWeight: '700', color: '#FFFFFF', letterSpacing: -0.2 },
   addBtnTextOff: { color: '#B0B4BC' },
+  buttonAccessoryBar: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: Spacing.md,
+    paddingTop: 4,
+    paddingBottom: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#D8DEE8',
+  },
+  addBtnAccessory: {
+    borderRadius: 12,
+    paddingVertical: 13,
+  },
 });

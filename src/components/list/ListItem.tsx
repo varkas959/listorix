@@ -325,7 +325,7 @@ export const ListItem = React.memo(function ListItem({ item, onToggle, isNew = f
                 onBlur={commitRowPrice}
                 onSubmitEditing={commitRowPrice}
                 keyboardType="numeric"
-                returnKeyType="done"
+                returnKeyType="next"
                 placeholder="—"
                 placeholderTextColor="#C8CDD5"
                 underlineColorAndroid="transparent"
@@ -385,7 +385,7 @@ export const ListItem = React.memo(function ListItem({ item, onToggle, isNew = f
                     value={editPrice}
                     onChangeText={setEditPrice}
                     keyboardType="numeric"
-                    returnKeyType="done"
+                    returnKeyType="next"
                     onSubmitEditing={saveEdit}
                     placeholder="0"
                     placeholderTextColor={Colors.textTertiary}
@@ -434,7 +434,8 @@ export const ListItem = React.memo(function ListItem({ item, onToggle, isNew = f
               </View>
             </Animated.View>
           </KeyboardAvoidingView>
-        </Modal>
+      </Modal>
+
     </View>
   );
 });
@@ -504,7 +505,7 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 20, lineHeight: 24, marginRight: 8 },
 
   // ── Name + unit ───────────────────────────────────────────────────────────
-  nameArea:    { flex: 1, gap: 2, marginRight: 6, justifyContent: 'center' },
+  nameArea:    { flex: 1, gap: 2, marginRight: 4, justifyContent: 'center' },
   nameWrap:    { position: 'relative', justifyContent: 'center' },
   name:        { fontSize: 15, fontWeight: '500', color: '#111111', letterSpacing: -0.1 },
   nameChecked: { color: '#AEAEB2' },
@@ -526,8 +527,8 @@ const styles = StyleSheet.create({
     width:         76,          // fixed: enough for ₹9999, reserves same slot every row
     flexDirection: 'row',
     alignItems:    'center',
-    marginLeft:    8,
-    marginRight:   6,
+    marginLeft:    6,
+    marginRight:   2,
   },
   inlinePriceSymbol: {
     fontSize:    15,
@@ -565,7 +566,7 @@ const styles = StyleSheet.create({
   hiddenKeepLayout: { opacity: 0 },
 
   // ── Stepper wrapper ───────────────────────────────────────────────────────
-  stepperWrap:        {},
+  stepperWrap:        { marginLeft: 0 },
   stepperWrapDimmed:  { opacity: 0.4 },   // clearly unset, not "broken"
 
   // ── Edit sheet ────────────────────────────────────────────────────────────

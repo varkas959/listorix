@@ -71,19 +71,19 @@ function computeCurrentListInsight(items: GroceryItem[], currencySymbol: string)
   const totalSpend = pricedItems.reduce((sum, item) => sum + item.price * (item.count ?? 1), 0);
   if (totalSpend > 0 && catSorted[0]) {
     const topCatPct = Math.round((catSorted[0].spend / totalSpend) * 100);
-    if (topCatPct >= 30) {
+    if (topCatPct >= 45) {
       candidates.push({
-        text: `${catSorted[0].cat} ${catVerb(catSorted[0].cat)} already ${topCatPct}% of your spend (${currencySymbol}${formatAmount(catSorted[0].spend)})`,
+        text: `${catSorted[0].cat} ${catVerb(catSorted[0].cat)} leading your spend so far at ${currencySymbol}${formatAmount(catSorted[0].spend)}`,
         score: 210 + topCatPct,
       });
     }
 
     if (catSorted[1]) {
       const topTwoPct = Math.round(((catSorted[0].spend + catSorted[1].spend) / totalSpend) * 100);
-      if (topTwoPct >= 65) {
+      if (topTwoPct >= 75 && topTwoPct < 100 && catSorted.length >= 3) {
         candidates.push({
-          text: `${catSorted[0].cat} and ${catSorted[1].cat} make up ${topTwoPct}% of your total so far`,
-          score: 190 + topTwoPct,
+          text: `${catSorted[0].cat} and ${catSorted[1].cat} are driving most of your total so far`,
+          score: 175 + topTwoPct,
         });
       }
     }
@@ -715,12 +715,12 @@ function EmptyState({ insetTop, currencySymbol }: { insetTop: number; currencySy
 
       {/* Headline */}
       <Text style={styles.emptyTitle}>
-        Know where your{'\n'}grocery money goes
+        Build your grocery{'\n'}list in seconds
       </Text>
 
       {/* Subtext */}
       <Text style={styles.emptySubtitle}>
-        Add items, enter prices, and see{'\n'}your total instantly
+        Add items, set prices if you want,{'\n'}and keep your total in view
       </Text>
 
       {/* Primary CTA */}
@@ -729,7 +729,7 @@ function EmptyState({ insetTop, currencySymbol }: { insetTop: number; currencySy
         onPress={() => fabEvents.openFAB()}
         activeOpacity={0.85}
       >
-        <Text style={styles.emptyCtaText}>Start tracking</Text>
+        <Text style={styles.emptyCtaText}>Start your list</Text>
       </TouchableOpacity>
 
       {/* Reassurance */}
@@ -772,24 +772,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   clearIcon: { fontSize: 14 },
-  amountBlock: { gap: 4 },
+  amountBlock: { gap: 3 },
   amountNumRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 2,
   },
   amountSymbol: {
-    fontSize: 22,
+    fontSize: 19,
     fontWeight: '500',
     color: Colors.textSecondary,
-    marginBottom: 10,
+    marginBottom: 8,
   },
   amountBig: {
-    fontSize: 52,
+    fontSize: 46,
     fontWeight: '800',
     color: Colors.textPrimary,
     letterSpacing: -2,
-    lineHeight: 58,
+    lineHeight: 51,
     fontVariant: ['tabular-nums' as const],
   },
   amountAccent:  { color: Colors.success },
@@ -799,7 +799,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   amountNoPriceTitle: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -0.5,
