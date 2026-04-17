@@ -2,10 +2,18 @@
   "expo": {
     "name": "Listorix",
     "slug": "listorix",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e9de1c84-9ec5-414d-b392-77336c374cf8",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "splash": {
       "image": "./assets/icon.png",
       "resizeMode": "contain",
@@ -14,7 +22,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.listorix.app",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "usesAppleSignIn": true,
       "infoPlist": {
         "UIDeviceFamily": [1],
@@ -27,7 +35,7 @@
     },
     "android": {
       "package": "com.listorix.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "backgroundColor": "#1AABA8",
         "foregroundImage": "./assets/android-icon-foreground.png",

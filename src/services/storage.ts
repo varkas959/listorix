@@ -3,6 +3,8 @@ import type { GroceryItem, TripSummary, PriceHistory, WidgetData } from '../type
 
 const KEYS = {
   items:               'listorix:items',
+  personalItems:       'listorix:items:personal',
+  groupItems:          'listorix:items:group',
   history:             'listorix:history',
   nextId:              'listorix:nextId',
   priceHistory:        'listorix:priceHistory',
@@ -21,17 +23,31 @@ const KEYS = {
   categoryOverrides:   'listorix:categoryOverrides',
 } as const;
 
-export async function loadItems(): Promise<GroceryItem[]> {
+export type ItemsContext = 'personal' | 'group';
+
+function getItemsKey(context: ItemsContext): string {
+  return context === 'group' ? KEYS.groupItems : KEYS.personalItems;
+}
+
+export async function loadItems(context: ItemsContext = 'personal'): Promise<GroceryItem[]> {
   try {
-    const raw = await AsyncStorage.getItem(KEYS.items);
-    return raw ? JSON.parse(raw) : [];
+    const raw = await AsyncStorage.getItem(getItemsKey(context));
+    if (raw) return JSON.parse(raw);
+
+    // Legacy migration: older builds stored one shared items cache.
+    if (context === 'personal') {
+      const legacyRaw = await AsyncStorage.getItem(KEYS.items);
+      return legacyRaw ? JSON.parse(legacyRaw) : [];
+    }
+
+    return [];
   } catch {
     return [];
   }
 }
 
-export async function saveItems(items: GroceryItem[]): Promise<void> {
-  await AsyncStorage.setItem(KEYS.items, JSON.stringify(items));
+export async function saveItems(items: GroceryItem[], context: ItemsContext = 'personal'): Promise<void> {
+  await AsyncStorage.setItem(getItemsKey(context), JSON.stringify(items));
 }
 
 export async function loadHistory(): Promise<TripSummary[]> {

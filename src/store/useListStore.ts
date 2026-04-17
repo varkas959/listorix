@@ -8,6 +8,7 @@ import {
   saveWidgetData,
   getHasCompletedFirstList, setHasCompletedFirstList,
   loadCategoryOverrides, saveCategoryOverrides,
+  type ItemsContext,
 } from '../services/storage';
 import { registerPushToken } from '../services/NotificationService';
 import {
@@ -31,11 +32,16 @@ import {
   getGroupActiveListId,
   getOrCreateGroupActiveListId,
   notifyGroupMembers,
+  HouseholdSetupError,
 } from '../services/api';
 import { useAuthStore } from './useAuthStore';
 
 const HIGH_PRICE_FRACTION = 0.18;
 const ACTIVE_CONTEXT_KEY  = 'listorix:activeContext';
+
+function withCountDefaults(items: GroceryItem[]): GroceryItem[] {
+  return items.map(i => ({ ...i, count: i.count ?? 1 }));
+}
 
 export interface SavedEvent {
   id:             string;
@@ -90,7 +96,7 @@ interface ListState {
   categoryOverrides: Record<string, string>;
 
   // ── Group actions ──────────────────────────────────────────────────────────
-  createGroup:   (name?: string) => Promise<'ok' | 'error'>;
+  createGroup:   (name?: string) => Promise<'ok' | 'schema_missing' | 'error'>;
   joinGroup:     (code: string) => Promise<'ok' | 'not_found' | 'error'>;
   leaveGroup:    () => Promise<void>;
   switchContext: (ctx: 'personal' | 'group') => Promise<void>;
@@ -164,17 +170,20 @@ export const useListStore = create<ListState>((set, get) => ({
 
   // ── hydrate ────────────────────────────────────────────────────────────────
   hydrate: async () => {
-    const [rawStored, priceMap, richHistory, firstListDone, savedContext, catOverrides] = await Promise.all([
-      loadItems(),
+    const [savedContext, rawPersonalStored, rawGroupStored, priceMap, richHistory, firstListDone, catOverrides] = await Promise.all([
+      AsyncStorage.getItem(ACTIVE_CONTEXT_KEY),
+      loadItems('personal'),
+      loadItems('group'),
       loadPriceHistory(),
       loadRichPriceHistory(),
       getHasCompletedFirstList(),
-      AsyncStorage.getItem(ACTIVE_CONTEXT_KEY),
       loadCategoryOverrides(),
     ]);
 
-    // Migrate: ensure every persisted item has `count`
-    const stored = rawStored.map(i => ({ ...i, count: i.count ?? 1 }));
+    const cachedContext: ItemsContext = savedContext === 'group' ? 'group' : 'personal';
+    const stored = withCountDefaults(
+      cachedContext === 'group' ? rawGroupStored : rawPersonalStored
+    );
 
     const hasReal = Object.keys(priceMap).length > 0;
     set({
@@ -223,13 +232,13 @@ export const useListStore = create<ListState>((set, get) => ({
         const groupListId = await getGroupActiveListId(groupData.group.id);
         if (groupListId) {
           const groupItems = await getItemsForList(groupListId);
-          const withCount  = groupItems.map(i => ({ ...i, count: i.count ?? 1 }));
+          const withCount  = withCountDefaults(groupItems);
           // Only overwrite in-memory items AND local cache when remote has items.
           // If remote returns empty (network hiccup / empty list), keep whatever
           // was loaded from AsyncStorage at the top of hydrate — never blank the screen.
           if (withCount.length > 0) {
             set({ _activeListId: groupListId, items: withCount });
-            saveItems(withCount);
+            saveItems(withCount, 'group');
           } else {
             set({ _activeListId: groupListId });
           }
@@ -237,29 +246,23 @@ export const useListStore = create<ListState>((set, get) => ({
           // No active group list yet — create one now (first use or after trip complete)
           try {
             const newListId = await getOrCreateGroupActiveListId(user.id, groupData.group.id);
-            set({ _activeListId: newListId });
+            set({ _activeListId: newListId, items: withCountDefaults(rawGroupStored) });
           } catch { /* stay offline */ }
         }
       } else {
         // Load personal list (existing logic)
+        const localItems = withCountDefaults(rawPersonalStored);
         if (remoteList) {
           if (remoteList.items.length > 0) {
-            const withCount = remoteList.items.map(i => ({ ...i, count: i.count ?? 1 }));
+            const withCount = withCountDefaults(remoteList.items);
             set({ _activeListId: remoteList.listId, items: withCount });
-            saveItems(withCount);
+            saveItems(withCount, 'personal');
           } else {
-            set({ _activeListId: remoteList.listId });
-            const localItems = get().items;
-            for (const item of localItems) {
-              remoteAddItem(user.id, remoteList.listId, item);
-            }
+            set({ _activeListId: remoteList.listId, items: localItems });
           }
         } else {
           const listId = await getOrCreateActiveListId(user.id);
-          set({ _activeListId: listId });
-          for (const item of get().items) {
-            remoteAddItem(user.id, listId, item);
-          }
+          set({ _activeListId: listId, items: localItems });
         }
       }
 
@@ -293,7 +296,7 @@ export const useListStore = create<ListState>((set, get) => ({
     };
     const items = [...get().items, newItem];
     set({ items });
-    saveItems(items);
+    saveItems(items, get().activeContext);
     persistWidgetData(items);
 
     const user        = useAuthStore.getState().user;
@@ -308,7 +311,7 @@ export const useListStore = create<ListState>((set, get) => ({
           i.id === newItem.id ? { ...i, remoteId } : i
         );
         set({ items: patched });
-        saveItems(patched);
+        saveItems(patched, get().activeContext);
 
         // Notify group members (or legacy list members for personal shared lists)
         if (isGroupCtx && groupId) {
@@ -344,7 +347,7 @@ export const useListStore = create<ListState>((set, get) => ({
     }
 
     set(update);
-    saveItems(items);
+    saveItems(items, get().activeContext);
     persistWidgetData(items);
 
     const user = useAuthStore.getState().user;
@@ -402,7 +405,7 @@ export const useListStore = create<ListState>((set, get) => ({
     const item  = get().items.find(i => i.id === id);
     const items = get().items.filter(i => i.id !== id);
     set({ items });
-    saveItems(items);
+    saveItems(items, get().activeContext);
     persistWidgetData(items);
 
     const user = useAuthStore.getState().user;
@@ -426,7 +429,7 @@ export const useListStore = create<ListState>((set, get) => ({
       items: [], lastItemPrice: priceMap, priceHistoryHydrated: true,
       hasCompletedFirstList: true, richPriceHistory: richHistory,
     });
-    saveItems([]);
+    saveItems([], get().activeContext);
     savePriceHistory(priceMap);
     saveRichPriceHistory(richHistory);
     setHasCompletedFirstList();
@@ -466,7 +469,7 @@ export const useListStore = create<ListState>((set, get) => ({
       items,
       ...(hadNoPrices && isAddingPrice ? { priceNudgePending: true } : {}),
     });
-    saveItems(items);
+    saveItems(items, get().activeContext);
     persistWidgetData(items);
 
     const user = useAuthStore.getState().user;
@@ -483,7 +486,7 @@ export const useListStore = create<ListState>((set, get) => ({
       i.id === id ? { ...i, count: safeCount } : i
     );
     set({ items });
-    saveItems(items);
+    saveItems(items, get().activeContext);
     persistWidgetData(items);
 
     const user = useAuthStore.getState().user;
@@ -499,7 +502,7 @@ export const useListStore = create<ListState>((set, get) => ({
       i.id === id ? { ...i, category } : i
     );
     set({ items });
-    saveItems(items);
+    saveItems(items, get().activeContext);
 
     // Remember the user's choice — next time this item name is added,
     // it will default to the category the user set here.
@@ -525,34 +528,47 @@ export const useListStore = create<ListState>((set, get) => ({
     if (!user) return 'error';
 
     try {
+      saveItems(get().items, 'personal');
       const result = await apiCreateGroup(user.id, name);
       if (!result) return 'error';
 
       // Fetch full member list so avatar shows real display name, not null
-      const withMembers = await getGroupWithMembers(user.id);
+      const withMembers = await getGroupWithMembers(user.id).catch(() => null);
 
+      // Persist household metadata first. We only switch the visible context
+      // after the shared list is confirmed ready.
       set({
-        groupId:       result.group.id,
-        groupName:     result.group.name,
-        inviteCode:    result.group.invite_code,
-        groupMembers:  withMembers?.members ?? result.members,
-        activeContext: 'group',
+        groupId:      result.group.id,
+        groupName:    result.group.name,
+        inviteCode:   result.group.invite_code,
+        groupMembers: withMembers?.members ?? result.members,
       });
-      AsyncStorage.setItem(ACTIVE_CONTEXT_KEY, 'group');
 
-      // Switch to group list
-      const groupListId = await getOrCreateGroupActiveListId(user.id, result.group.id);
-      const groupItems  = await getItemsForList(groupListId);
-      const withCount   = groupItems.map(i => ({ ...i, count: i.count ?? 1 }));
-      set({ _activeListId: groupListId, items: withCount });
-      saveItems(withCount);
-      persistWidgetData(withCount);
+      try {
+        const groupListId = await getOrCreateGroupActiveListId(user.id, result.group.id);
+        const groupItems  = await getItemsForList(groupListId);
+        const withCount   = withCountDefaults(groupItems);
+        set({ _activeListId: groupListId, items: withCount, activeContext: 'group' });
+        AsyncStorage.setItem(ACTIVE_CONTEXT_KEY, 'group');
+        saveItems(withCount, 'group');
+        persistWidgetData(withCount);
+      } catch (error) {
+        if (error instanceof HouseholdSetupError && error.kind === 'schema_missing') {
+          return 'schema_missing';
+        }
+        console.warn('[store] createGroup list bootstrap failed:', error);
+        return 'error';
+      }
 
       // Request notification permission + register token so members get notified
       registerPushToken();
 
       return 'ok';
-    } catch {
+    } catch (error) {
+      if (error instanceof HouseholdSetupError && error.kind === 'schema_missing') {
+        return 'schema_missing';
+      }
+      console.warn('[store] createGroup failed:', error);
       return 'error';
     }
   },
@@ -563,6 +579,7 @@ export const useListStore = create<ListState>((set, get) => ({
     if (!user) return 'error';
 
     try {
+      saveItems(get().items, 'personal');
       const result = await apiJoinGroup(user.id, code.trim().toUpperCase());
       if (!result) {
         console.warn('[store] joinGroup: group not found for code:', code);
@@ -581,9 +598,9 @@ export const useListStore = create<ListState>((set, get) => ({
       // Load the group's active list
       const groupListId = await getOrCreateGroupActiveListId(user.id, result.group.id);
       const groupItems  = await getItemsForList(groupListId);
-      const withCount   = groupItems.map(i => ({ ...i, count: i.count ?? 1 }));
+      const withCount   = withCountDefaults(groupItems);
       set({ _activeListId: groupListId, items: withCount });
-      saveItems(withCount);
+      saveItems(withCount, 'group');
       persistWidgetData(withCount);
 
       // Request notification permission + register token so owner gets notified
@@ -616,15 +633,16 @@ export const useListStore = create<ListState>((set, get) => ({
     try {
       const remoteList = await getActiveList(user.id);
       if (remoteList) {
-        const withCount = remoteList.items.map(i => ({ ...i, count: i.count ?? 1 }));
+        const withCount = withCountDefaults(remoteList.items);
         set({ _activeListId: remoteList.listId, items: withCount });
-        saveItems(withCount);
+        saveItems(withCount, 'personal');
         persistWidgetData(withCount);
       } else {
         const listId = await getOrCreateActiveListId(user.id);
-        set({ _activeListId: listId, items: [] });
-        saveItems([]);
-        persistWidgetData([]);
+        const personalCached = await loadItems('personal');
+        set({ _activeListId: listId, items: personalCached });
+        saveItems(personalCached, 'personal');
+        persistWidgetData(personalCached);
       }
     } catch { /* stay with current state */ }
   },
@@ -642,10 +660,13 @@ export const useListStore = create<ListState>((set, get) => ({
     // Clear notification dot when user opens the household list
     if (ctx === 'group') set({ groupNotification: false });
 
-    // Clear in-memory items immediately so stale items from the other context
-    // never flash — but do NOT call saveItems([]) here because that would
-    // wipe AsyncStorage and cause items to be missing on next app launch.
-    set({ activeContext: ctx, items: [] });
+    saveItems(prevItems, prevCtx);
+
+    const cachedTargetItems = withCountDefaults(await loadItems(ctx));
+
+    // Swap to the target cache immediately so we avoid both stale cross-context
+    // flashes and empty-state flicker while the remote fetch is in flight.
+    set({ activeContext: ctx, items: cachedTargetItems });
     AsyncStorage.setItem(ACTIVE_CONTEXT_KEY, ctx);
 
     const user = useAuthStore.getState().user;
@@ -655,25 +676,30 @@ export const useListStore = create<ListState>((set, get) => ({
       if (ctx === 'group' && groupId) {
         const groupListId = await getOrCreateGroupActiveListId(user.id, groupId);
         const groupItems  = await getItemsForList(groupListId);
-        const withCount   = groupItems.map(i => ({ ...i, count: i.count ?? 1 }));
-        set({ _activeListId: groupListId, items: withCount });
+        const withCount   = withCountDefaults(groupItems);
+        set({ _activeListId: groupListId, items: withCount.length > 0 ? withCount : cachedTargetItems });
         if (withCount.length > 0) {
-          saveItems(withCount);
+          saveItems(withCount, 'group');
           persistWidgetData(withCount);
+        } else {
+          persistWidgetData(cachedTargetItems);
         }
       } else {
         // Switch to personal list
         const remoteList = await getActiveList(user.id);
         if (remoteList) {
-          const withCount = remoteList.items.map(i => ({ ...i, count: i.count ?? 1 }));
-          set({ _activeListId: remoteList.listId, items: withCount });
+          const withCount = withCountDefaults(remoteList.items);
+          set({ _activeListId: remoteList.listId, items: withCount.length > 0 ? withCount : cachedTargetItems });
           if (withCount.length > 0) {
-            saveItems(withCount);
+            saveItems(withCount, 'personal');
             persistWidgetData(withCount);
+          } else {
+            persistWidgetData(cachedTargetItems);
           }
         } else {
           const listId = await getOrCreateActiveListId(user.id);
-          set({ _activeListId: listId });
+          set({ _activeListId: listId, items: cachedTargetItems });
+          persistWidgetData(cachedTargetItems);
         }
       }
     } catch {

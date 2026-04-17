@@ -25,6 +25,7 @@ import { useListStore } from '../src/store/useListStore';
 
 export default function RootLayout() {
   const { initialize, user, loading } = useAuthStore();
+  const hydrateListStore = useListStore(s => s.hydrate);
   const [onboarded, setBoarded] = useState<boolean | null>(null);
   const router   = useRouter();
   const segments = useSegments();
@@ -37,7 +38,7 @@ export default function RootLayout() {
     const groupItems = await getItemsForList(groupListId);
     const withCount = groupItems.map(item => ({ ...item, count: item.count ?? 1 }));
     useListStore.setState({ _activeListId: groupListId, items: withCount });
-    await saveItems(withCount);
+    await saveItems(withCount, 'group');
   };
 
   const handleNotificationOpen = async (payload?: NotificationNavigationPayload) => {
@@ -91,6 +92,13 @@ export default function RootLayout() {
   useEffect(() => {
     if (user) registerPushToken();
   }, [user]);
+
+  // Hydrate the list store after auth restoration so the app can restore the
+  // correct personal/family context and cached items on every cold launch.
+  useEffect(() => {
+    if (loading) return;
+    hydrateListStore().catch(() => undefined);
+  }, [loading, user?.id, hydrateListStore]);
 
   useEffect(() => {
     function payloadFromResponse(response: Notifications.NotificationResponse): NotificationNavigationPayload | undefined {

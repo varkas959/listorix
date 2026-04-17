@@ -3,7 +3,8 @@
  *
  * Design rules:
  * - Every function is standalone and takes explicit parameters.
- * - Errors are caught and warned, never thrown — callers stay offline-first.
+ * - Most errors are caught and warned so callers stay offline-first.
+ * - Household setup calls may throw when the backend schema is incomplete.
  * - Returns typed data or null/empty on failure.
  */
 
@@ -35,6 +36,77 @@ interface DbList {
   completed_at: string | null;
   total:        number | null;
   items:        { category: string }[];
+}
+
+interface DbListIdRow {
+  id:         string;
+  created_at?: string | null;
+}
+
+type SupabaseLikeError = {
+  code?: string;
+  message?: string;
+  details?: string;
+  hint?: string;
+} | null | undefined;
+
+export class HouseholdSetupError extends Error {
+  kind: 'schema_missing' | 'request_failed';
+
+  constructor(kind: 'schema_missing' | 'request_failed', message: string) {
+    super(message);
+    this.name = 'HouseholdSetupError';
+    this.kind = kind;
+  }
+}
+
+function formatSupabaseError(error: SupabaseLikeError): string {
+  if (!error) return 'Unknown Supabase error';
+  return JSON.stringify({
+    code: error.code,
+    message: error.message,
+    details: error.details,
+    hint: error.hint,
+  });
+}
+
+function isHouseholdSchemaError(error: SupabaseLikeError): boolean {
+  const code = error?.code ?? '';
+  const haystack = `${error?.message ?? ''} ${error?.details ?? ''} ${error?.hint ?? ''}`.toLowerCase();
+
+  return (
+    code === '42P01' || // relation does not exist
+    code === '42703' || // column does not exist
+    haystack.includes('relation') && haystack.includes('does not exist') ||
+    haystack.includes('column') && haystack.includes('does not exist') ||
+    haystack.includes('groups') && haystack.includes('does not exist') ||
+    haystack.includes('group_members') && haystack.includes('does not exist') ||
+    haystack.includes('group_id') && haystack.includes('does not exist')
+  );
+}
+
+async function assertHouseholdSchemaReady(): Promise<void> {
+  const probes = await Promise.all([
+    supabase.from('groups').select('id').limit(1),
+    supabase.from('group_members').select('group_id').limit(1),
+    supabase.from('profiles').select('group_id').limit(1),
+    supabase.from('lists').select('group_id').limit(1),
+  ]);
+
+  const failingProbe = probes.find(result => result.error);
+  if (!failingProbe?.error) return;
+
+  if (isHouseholdSchemaError(failingProbe.error)) {
+    throw new HouseholdSetupError(
+      'schema_missing',
+      `Household schema is incomplete: ${formatSupabaseError(failingProbe.error)}`
+    );
+  }
+
+  throw new HouseholdSetupError(
+    'request_failed',
+    `Household schema probe failed: ${formatSupabaseError(failingProbe.error)}`
+  );
 }
 
 // ── Profile ───────────────────────────────────────────────────────────────────
@@ -78,27 +150,27 @@ export async function updateProfile(
  * This is the guaranteed entry-point before any item write.
  */
 export async function getOrCreateActiveListId(userId: string): Promise<string> {
-  console.log('[api] getOrCreateActiveListId for userId:', userId);
-  const { data: existing, error: selErr } = await supabase
+  const { data: existingRows, error: selErr } = await supabase
     .from('lists')
-    .select('id')
+    .select('id, created_at')
     .eq('user_id', userId)
     .eq('is_active', true)
     .is('group_id', null)   // personal lists only — exclude group lists
+    .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .returns<DbListIdRow[]>();
 
-  if (selErr) console.warn('[api] SELECT lists error:', selErr.code, selErr.message, selErr.details);
-  if (existing?.id) { console.log('[api] found existing list:', existing.id); return existing.id; }
+  if (selErr) {
+    console.warn('[api] getOrCreateActiveListId SELECT error:', selErr.code, selErr.message, selErr.details);
+  }
+  if (existingRows?.[0]?.id) return existingRows[0].id;
 
-  console.log('[api] no active list found, creating...');
   const { data: created, error } = await supabase
     .from('lists')
     .insert({ user_id: userId, is_active: true })
     .select('id')
     .single();
 
-  console.log('[api] INSERT result:', { created, error: error ? { code: error.code, msg: error.message, details: error.details } : null });
   if (error || !created) throw new Error('[api] Failed to create active list: ' + error?.message);
   return created.id;
 }
@@ -111,14 +183,22 @@ export async function getActiveList(
   userId: string
 ): Promise<{ listId: string; items: GroceryItem[] } | null> {
   try {
-    const { data: list } = await supabase
+    const { data: listRows, error: listError } = await supabase
       .from('lists')
-      .select('id')
+      .select('id, created_at')
       .eq('user_id', userId)
       .eq('is_active', true)
       .is('group_id', null)   // personal lists only
+      .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .returns<DbListIdRow[]>();
+
+    if (listError) {
+      console.warn('[api] getActiveList list query:', listError.message);
+      return null;
+    }
+
+    const list = listRows?.[0];
 
     if (!list) return null;
 
@@ -398,6 +478,7 @@ export async function createGroup(
   userId: string,
   name?: string,
 ): Promise<GroupWithMembers | null> {
+  await assertHouseholdSchemaReady();
   const invite_code = generateGroupCode();
 
   const { data: group, error } = await supabase
@@ -407,22 +488,39 @@ export async function createGroup(
     .single();
 
   if (error || !group) {
-    console.error('[api] createGroup INSERT error:', JSON.stringify({ code: error?.code, message: error?.message, details: error?.details, hint: error?.hint }));
-    return null;
+    const details = formatSupabaseError(error);
+    console.error('[api] createGroup INSERT error:', details);
+    throw new HouseholdSetupError(
+      isHouseholdSchemaError(error) ? 'schema_missing' : 'request_failed',
+      `Could not create group: ${details}`
+    );
   }
 
   // Insert creator as admin
   const { error: memberErr } = await supabase
     .from('group_members')
     .insert({ group_id: group.id, user_id: userId, role: 'admin' });
-  if (memberErr) console.error('[api] createGroup member INSERT error:', JSON.stringify({ code: memberErr.code, message: memberErr.message }));
+  if (memberErr) {
+    console.error('[api] createGroup member INSERT error:', formatSupabaseError(memberErr));
+    await supabase.from('groups').delete().eq('id', group.id);
+    throw new HouseholdSetupError(
+      isHouseholdSchemaError(memberErr) ? 'schema_missing' : 'request_failed',
+      `Could not create group membership: ${formatSupabaseError(memberErr)}`
+    );
+  }
 
-  // Stamp profiles.group_id for quick lookup
+  // Stamp profiles.group_id for quick lookup. Upsert also repairs older accounts
+  // that were created before the profile trigger existed.
   const { error: profileErr } = await supabase
     .from('profiles')
-    .update({ group_id: group.id })
-    .eq('id', userId);
-  if (profileErr) console.error('[api] createGroup profile UPDATE error:', JSON.stringify({ code: profileErr.code, message: profileErr.message }));
+    .upsert({ id: userId, group_id: group.id }, { onConflict: 'id' });
+  if (profileErr) {
+    console.error('[api] createGroup profile UPSERT error:', formatSupabaseError(profileErr));
+    throw new HouseholdSetupError(
+      isHouseholdSchemaError(profileErr) ? 'schema_missing' : 'request_failed',
+      `Could not attach profile to group: ${formatSupabaseError(profileErr)}`
+    );
+  }
 
   const members: GroupMember[] = [{
     userId, displayName: null, role: 'admin', joinedAt: Date.now(),
@@ -524,7 +622,15 @@ export async function getGroupActiveListId(groupId: string): Promise<string | nu
     .limit(1)
     .maybeSingle();   // returns null without error when 0 rows — unlike .single()
 
-  if (error) console.warn('[api] getGroupActiveListId:', error.message);
+  if (error) {
+    console.warn('[api] getGroupActiveListId:', error.message);
+    if (isHouseholdSchemaError(error)) {
+      throw new HouseholdSetupError(
+        'schema_missing',
+        `Could not read household list: ${formatSupabaseError(error)}`
+      );
+    }
+  }
   return data?.id ?? null;
 }
 
@@ -542,7 +648,12 @@ export async function getOrCreateGroupActiveListId(
     .select('id')
     .single();
 
-  if (error || !created) throw new Error('[api] Failed to create group list: ' + error?.message);
+  if (error || !created) {
+    throw new HouseholdSetupError(
+      isHouseholdSchemaError(error) ? 'schema_missing' : 'request_failed',
+      '[api] Failed to create group list: ' + formatSupabaseError(error)
+    );
+  }
   return created.id;
 }
 

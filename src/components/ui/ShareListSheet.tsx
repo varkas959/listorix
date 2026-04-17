@@ -76,6 +76,10 @@ export function ShareListSheet({ visible, onClose }: Props) {
     setCreateError(null);
     const result = await createGroup();
     setCreating(false);
+    if (result === 'schema_missing') {
+      setCreateError('Household setup is missing in Supabase. Run the household migration, then try again.');
+      return;
+    }
     if (result !== 'ok') {
       setCreateError('Could not create household. Check your internet and try again.');
     }
