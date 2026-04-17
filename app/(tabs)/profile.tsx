@@ -49,9 +49,9 @@ import type { Profile } from '../../src/types';
 import { formatAmount, useCurrencySettings } from '../../src/utils/currency';
 
 const STORE_OPTIONS = [
-  { key: 'local',       label: 'Local store',  sub: 'Kirana, market, etc.' },
-  { key: 'supermarket', label: 'Supermarket',  sub: 'Big Bazaar, D-Mart, etc.' },
-  { key: 'online',      label: 'Online',        sub: 'Blinkit, Zepto, Instamart' },
+  { key: 'local',       label: 'Local store',  sub: 'Neighbourhood shop, market, etc.' },
+  { key: 'supermarket', label: 'Supermarket',  sub: 'Large grocery chain, warehouse club, etc.' },
+  { key: 'online',      label: 'Online',        sub: 'Delivery app, online grocer, marketplace' },
 ];
 
 const SUPPORT_EMAIL = 'support@listorix.com';

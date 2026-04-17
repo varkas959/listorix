@@ -21,7 +21,7 @@ const CORS_HEADERS = {
 const DAILY_LIMIT = 10;
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024; // 3MB base64 limit
 
-const RECEIPT_PROMPT = `You are a receipt OCR assistant for an Indian grocery app.
+const RECEIPT_PROMPT = `You are a receipt OCR assistant for a grocery shopping app.
 
 FIRST: Determine if the image is a grocery receipt or bill.
 - If it is NOT a receipt/bill (e.g. selfie, food photo, landscape, product, random object, screenshot, etc.), return ONLY: { "not_receipt": true, "items": [] }
@@ -31,12 +31,12 @@ Return JSON: { "items": [...], "not_receipt"?: boolean }
 Each item: { "name": string, "qty": string, "price": number }
 
 Rules for receipts:
-- "name" in English, even if receipt is in Hindi or a regional language
+- "name" in English, even if the receipt uses another language
 - "qty" with unit if visible ("1kg", "500g", "2L", "1 pack"), else "1"
-- "price" in rupees as a number (no currency symbol), 0 if not visible
+- "price" as a number without the currency symbol, 0 if not visible
 - Skip non-grocery items: bags, taxes, discounts, totals, subtotals, store info, dates
 - Normalize abbreviations: "TOM" → "Tomatoes", "PNR" → "Paneer", "MLK" → "Milk"
-- Handle common Indian store formats: Big Bazaar, D-Mart, Reliance, More, local kirana bills
+- Handle common global grocery receipt formats, including supermarkets, local markets, warehouse clubs, and convenience stores
 - If the receipt is unreadable, return { "items": [] }`;
 
 function json(body: unknown, status = 200) {

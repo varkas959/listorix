@@ -11,10 +11,10 @@ import { Colors } from '../src/constants/colors';
 import { Spacing, Radius } from '../src/constants/spacing';
 import { setStorePreference } from '../src/services/storage';
 
-const OPTIONS = [
-  { key: 'local',       label: 'Local store',   emoji: '🏪', sub: 'Kirana, market, etc.' },
-  { key: 'supermarket', label: 'Supermarket',   emoji: '🛒', sub: 'Big Bazaar, D-Mart, etc.' },
-  { key: 'online',      label: 'Online',         emoji: '📦', sub: 'Blinkit, Zepto, Swiggy Instamart' },
+const GLOBAL_STORE_OPTIONS = [
+  { key: 'local', label: 'Local store', emoji: '🏪', sub: 'Neighbourhood shop, market, etc.' },
+  { key: 'supermarket', label: 'Supermarket', emoji: '🛒', sub: 'Large grocery chain, warehouse club, etc.' },
+  { key: 'online', label: 'Online', emoji: '📦', sub: 'Delivery app, online grocer, marketplace' },
 ] as const;
 
 export default function OnboardStoreScreen() {
@@ -41,7 +41,7 @@ export default function OnboardStoreScreen() {
 
       {/* Option tiles */}
       <View style={styles.options}>
-        {OPTIONS.map(opt => {
+        {GLOBAL_STORE_OPTIONS.map(opt => {
           const active = selected === opt.key;
           return (
             <TouchableOpacity
