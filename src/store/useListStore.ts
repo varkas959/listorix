@@ -6,6 +6,7 @@ import {
   loadHistory, saveHistory,
   loadRichPriceHistory, saveRichPriceHistory,
   saveWidgetData,
+  clearLegacyItemsCache,
   getHasCompletedFirstList, setHasCompletedFirstList,
   loadCategoryOverrides, saveCategoryOverrides,
   type ItemsContext,
@@ -170,6 +171,8 @@ export const useListStore = create<ListState>((set, get) => ({
 
   // ── hydrate ────────────────────────────────────────────────────────────────
   hydrate: async () => {
+    await clearLegacyItemsCache();
+
     const [savedContext, rawPersonalStored, rawGroupStored, priceMap, richHistory, firstListDone, catOverrides] = await Promise.all([
       AsyncStorage.getItem(ACTIVE_CONTEXT_KEY),
       loadItems('personal'),
@@ -251,16 +254,12 @@ export const useListStore = create<ListState>((set, get) => ({
         }
       } else {
         // Load personal list (existing logic)
-        const localItems = withCountDefaults(rawPersonalStored);
         if (remoteList) {
-          if (remoteList.items.length > 0) {
-            const withCount = withCountDefaults(remoteList.items);
-            set({ _activeListId: remoteList.listId, items: withCount });
-            saveItems(withCount, 'personal');
-          } else {
-            set({ _activeListId: remoteList.listId, items: localItems });
-          }
+          const withCount = withCountDefaults(remoteList.items);
+          set({ _activeListId: remoteList.listId, items: withCount });
+          saveItems(withCount, 'personal');
         } else {
+          const localItems = withCountDefaults(rawPersonalStored);
           const listId = await getOrCreateActiveListId(user.id);
           set({ _activeListId: listId, items: localItems });
         }
@@ -689,13 +688,9 @@ export const useListStore = create<ListState>((set, get) => ({
         const remoteList = await getActiveList(user.id);
         if (remoteList) {
           const withCount = withCountDefaults(remoteList.items);
-          set({ _activeListId: remoteList.listId, items: withCount.length > 0 ? withCount : cachedTargetItems });
-          if (withCount.length > 0) {
-            saveItems(withCount, 'personal');
-            persistWidgetData(withCount);
-          } else {
-            persistWidgetData(cachedTargetItems);
-          }
+          set({ _activeListId: remoteList.listId, items: withCount });
+          saveItems(withCount, 'personal');
+          persistWidgetData(withCount);
         } else {
           const listId = await getOrCreateActiveListId(user.id);
           set({ _activeListId: listId, items: cachedTargetItems });

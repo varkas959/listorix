@@ -32,15 +32,7 @@ function getItemsKey(context: ItemsContext): string {
 export async function loadItems(context: ItemsContext = 'personal'): Promise<GroceryItem[]> {
   try {
     const raw = await AsyncStorage.getItem(getItemsKey(context));
-    if (raw) return JSON.parse(raw);
-
-    // Legacy migration: older builds stored one shared items cache.
-    if (context === 'personal') {
-      const legacyRaw = await AsyncStorage.getItem(KEYS.items);
-      return legacyRaw ? JSON.parse(legacyRaw) : [];
-    }
-
-    return [];
+    return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
@@ -48,6 +40,10 @@ export async function loadItems(context: ItemsContext = 'personal'): Promise<Gro
 
 export async function saveItems(items: GroceryItem[], context: ItemsContext = 'personal'): Promise<void> {
   await AsyncStorage.setItem(getItemsKey(context), JSON.stringify(items));
+}
+
+export async function clearLegacyItemsCache(): Promise<void> {
+  await AsyncStorage.removeItem(KEYS.items);
 }
 
 export async function loadHistory(): Promise<TripSummary[]> {

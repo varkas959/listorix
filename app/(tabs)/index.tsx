@@ -374,11 +374,33 @@ const insightText = useMemo(() => {
         {/* Header — empty state */}
         <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
           <View style={styles.headerTopRow}>
-            <View />
+            <ContextSwitcher
+              activeContext={activeContext}
+              groupId={groupId}
+              groupNotification={groupNotification}
+              onSwitch={switchContext}
+              onSharePress={() => setShareOpen(true)}
+            />
+            <View style={styles.headerIcons}>
+              <TouchableOpacity
+                style={styles.headerIconBtn}
+                onPress={() => setShareOpen(true)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={styles.clearIcon}>{groupId ? '👥' : '+'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
         <ShareListSheet visible={shareOpen} onClose={() => setShareOpen(false)} />
-        <EmptyState insetTop={8} currencySymbol={currencySymbol} />
+        <EmptyState
+          insetTop={8}
+          currencySymbol={currencySymbol}
+          activeContext={activeContext}
+          groupName={groupName}
+          hasFamily={!!groupId}
+        />
       </View>
     );
   }
@@ -681,7 +703,30 @@ const ctxStyles = StyleSheet.create({
   },
 });
 
-function EmptyState({ insetTop, currencySymbol }: { insetTop: number; currencySymbol: string }) {
+function EmptyState({
+  insetTop,
+  currencySymbol,
+  activeContext,
+  groupName,
+  hasFamily,
+}: {
+  insetTop: number;
+  currencySymbol: string;
+  activeContext: 'personal' | 'group';
+  groupName: string | null;
+  hasFamily: boolean;
+}) {
+  const isFamily = activeContext === 'group';
+  const title = isFamily
+    ? `Start your ${groupName ?? 'family'} list`
+    : `Build your grocery${'\n'}list in seconds`;
+  const subtitle = isFamily
+    ? 'Your shared household list is empty.\nAdd the first item and everyone will see it.'
+    : hasFamily
+      ? 'Your personal list is empty.\nSwitch to Family anytime or start a fresh list here.'
+      : 'Add items, set prices if you want,\nand keep your total in view';
+  const ctaLabel = isFamily ? 'Add family items' : 'Start your list';
+
   return (
     <View style={[styles.empty, { paddingTop: insetTop + 8 }]}>
 
@@ -715,12 +760,12 @@ function EmptyState({ insetTop, currencySymbol }: { insetTop: number; currencySy
 
       {/* Headline */}
       <Text style={styles.emptyTitle}>
-        Build your grocery{'\n'}list in seconds
+        {title}
       </Text>
 
       {/* Subtext */}
       <Text style={styles.emptySubtitle}>
-        Add items, set prices if you want,{'\n'}and keep your total in view
+        {subtitle}
       </Text>
 
       {/* Primary CTA */}
@@ -729,7 +774,7 @@ function EmptyState({ insetTop, currencySymbol }: { insetTop: number; currencySy
         onPress={() => fabEvents.openFAB()}
         activeOpacity={0.85}
       >
-        <Text style={styles.emptyCtaText}>Start your list</Text>
+        <Text style={styles.emptyCtaText}>{ctaLabel}</Text>
       </TouchableOpacity>
 
       {/* Reassurance */}
