@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "3AJYTW97GH.com.listorix.app",
+        "paths": [
+          "/join",
+          "/join/*"
+        ]
+      }
+    ]
+  }
+}
