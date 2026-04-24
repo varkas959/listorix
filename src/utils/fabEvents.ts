@@ -3,10 +3,14 @@
  * Only one listener at a time (the FAB in _layout.tsx).
  */
 type Listener = () => void;
-let _listener: Listener | null = null;
+let _fabListener: Listener | null = null;
+let _manualListener: Listener | null = null;
 
 export const fabEvents = {
-  setListener: (fn: Listener) => { _listener = fn; },
-  removeListener: () => { _listener = null; },
-  openFAB: () => { _listener?.(); },
+  setFabListener: (fn: Listener) => { _fabListener = fn; },
+  removeFabListener: () => { _fabListener = null; },
+  openFAB: () => { _fabListener?.(); },
+  setManualListener: (fn: Listener) => { _manualListener = fn; },
+  removeManualListener: () => { _manualListener = null; },
+  openManual: () => { _manualListener?.(); },
 };

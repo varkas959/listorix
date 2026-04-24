@@ -32,9 +32,13 @@ export default function AddItemsScreen() {
   const [parsedText, setParsedText] = useState('');
   const [kbHeight, setKbHeight]     = useState(0);
   const [contentReady, setContentReady] = useState(false);
+  const [addedCount, setAddedCount] = useState(0);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentOpacity = useRef(new Animated.Value(0)).current;
   const contentTranslate = useRef(new Animated.Value(24)).current;
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTranslate = useRef(new Animated.Value(8)).current;
 
   useEffect(() => {
     let revealed = false;
@@ -74,9 +78,52 @@ export default function AddItemsScreen() {
     return () => {
       cancelAnimationFrame(focusFrame);
       clearTimeout(revealTimer);
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
       subs.forEach(s => s.remove());
     };
   }, [contentOpacity, contentTranslate]);
+
+  const showAddedToast = useCallback((count: number) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setAddedCount(count);
+    toastOpacity.stopAnimation();
+    toastTranslate.stopAnimation();
+    toastOpacity.setValue(0);
+    toastTranslate.setValue(8);
+
+    Animated.parallel([
+      Animated.timing(toastOpacity, {
+        toValue: 1,
+        duration: 160,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(toastTranslate, {
+        toValue: 0,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    toastTimer.current = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(toastOpacity, {
+          toValue: 0,
+          duration: 180,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(toastTranslate, {
+          toValue: -6,
+          duration: 180,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 1200);
+  }, [toastOpacity, toastTranslate]);
 
   const handleTextChange = useCallback((t: string) => {
     setText(t);
@@ -135,8 +182,11 @@ export default function AddItemsScreen() {
     const final = mergeParsedItems(parseBulkText(text));
     if (!final.length) return;
     final.forEach((item, i) => setTimeout(() => addItem(item), i * 40));
-    router.back();
-  }, [text, addItem, router]);
+    setText('');
+    setParsedText('');
+    showAddedToast(final.length);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [text, addItem, showAddedToast]);
 
   const removeChip = useCallback((chipIndex: number) => {
     const lineIdx = previewItems[chipIndex]?.sourceLineIndex;
@@ -190,6 +240,21 @@ export default function AddItemsScreen() {
           <Text style={styles.closeBtnText}>x</Text>
         </TouchableOpacity>
       </View>
+
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.toastWrap,
+          {
+            opacity: toastOpacity,
+            transform: [{ translateY: toastTranslate }],
+          },
+        ]}
+      >
+        <Text style={styles.toastText}>
+          {addedCount} {addedCount === 1 ? 'item added' : 'items added'}
+        </Text>
+      </Animated.View>
 
       {/* Scrollable middle: textarea + chips */}
       <ScrollView
@@ -337,6 +402,20 @@ const styles = StyleSheet.create({
   scrollArea: {
     flex: 1,
     marginBottom: 12,
+  },
+  toastWrap: {
+    alignSelf: 'center',
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#132238',
+  },
+  toastText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    letterSpacing: -0.1,
   },
   textareaWrap: {
     backgroundColor: '#F8FAFC',

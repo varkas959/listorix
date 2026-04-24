@@ -10,10 +10,17 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Keyboard,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  Share,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useListStore } from '../../src/store/useListStore';
-import { CategoryGroup } from '../../src/components/list/CategoryGroup';
+import { ListItem } from '../../src/components/list/ListItem';
 import { Colors } from '../../src/constants/colors';
 import { Spacing } from '../../src/constants/spacing';
 import { SavedToast } from '../../src/components/ui/SavedToast';
@@ -22,14 +29,11 @@ import { SessionEndSheet } from '../../src/components/ui/SessionEndSheet';
 import { ShareListSheet } from '../../src/components/ui/ShareListSheet';
 import { useRealtimeItems } from '../../src/hooks/useRealtimeItems';
 import { isSavePromptShown } from '../../src/services/storage';
-import { fabEvents } from '../../src/utils/fabEvents';
+import { parseBulkText } from '../../src/services/VoiceParser';
 import { formatAmount, useCurrencySettings } from '../../src/utils/currency';
-import type { GroceryItem } from '../../src/types';
-
-const CATEGORY_ORDER = [
-  'Vegetables','Dairy','Fruits','Snacks','Grains','Pulses',
-  'Spices','Bakery','Beverages','Oils & Sauces','Cleaning','Other',
-];
+import { appendLaunchDiagnostic } from '../../src/services/launchDiagnostics';
+import { IconShareArrow } from '../../src/components/ui/Icons';
+import type { GroceryItem, ParsedItem } from '../../src/types';
 
 interface ScoredListInsight {
   text: string;
@@ -59,9 +63,10 @@ function computeCurrentListInsight(items: GroceryItem[], currencySymbol: string)
 
   const catMap: Record<string, { count: number; spend: number }> = {};
   items.forEach(item => {
-    if (!catMap[item.category]) catMap[item.category] = { count: 0, spend: 0 };
-    catMap[item.category].count++;
-    catMap[item.category].spend += item.price * (item.count ?? 1);
+    const category = item.category?.trim() || 'Other';
+    if (!catMap[category]) catMap[category] = { count: 0, spend: 0 };
+    catMap[category].count++;
+    catMap[category].spend += item.price * (item.count ?? 1);
   });
 
   const catSorted = Object.entries(catMap)
@@ -92,9 +97,10 @@ function computeCurrentListInsight(items: GroceryItem[], currencySymbol: string)
   const itemSpendMap: Record<string, number> = {};
   const itemPriceMap: Record<string, number[]> = {};
   pricedItems.forEach(item => {
+    const name = item.name?.trim() || 'Untitled item';
     const lineTotal = item.price * (item.count ?? 1);
-    itemSpendMap[item.name] = (itemSpendMap[item.name] ?? 0) + lineTotal;
-    itemPriceMap[item.name] = [...(itemPriceMap[item.name] ?? []), item.price];
+    itemSpendMap[name] = (itemSpendMap[name] ?? 0) + lineTotal;
+    itemPriceMap[name] = [...(itemPriceMap[name] ?? []), item.price];
   });
 
   const topSpendItem = Object.entries(itemSpendMap).sort((a, b) => b[1] - a[1])[0];
@@ -196,23 +202,95 @@ const SaveDeltaBadge = React.memo(React.forwardRef<SaveDeltaBadgeHandle, {
 ));
 
 export default function ListScreen() {
+  const router = useRouter();
   const { currencySymbol } = useCurrencySettings();
+  const hydrated              = useListStore(s => s.hydrated);
   const items                 = useListStore(s => s.items);
+  const addItem               = useListStore(s => s.addItem);
   const toggleItem            = useListStore(s => s.toggleItem);
   const clearList             = useListStore(s => s.clearList);
   const lastTripTotal         = useListStore(s => s.lastTripTotal);
   const hasCompletedFirstList = useListStore(s => s.hasCompletedFirstList);
   const groupId               = useListStore(s => s.groupId);
   const groupName             = useListStore(s => s.groupName);
+  const groupMembers          = useListStore(s => s.groupMembers);
+  const inviteCode            = useListStore(s => s.inviteCode);
   const activeContext         = useListStore(s => s.activeContext);
   const switchContext         = useListStore(s => s.switchContext);
+  const leaveGroup            = useListStore(s => s.leaveGroup);
   const groupNotification     = useListStore(s => s.groupNotification);
+  const pendingInviteCode     = useListStore(s => s.pendingInviteCode);
   const _activeListId         = useListStore(s => s._activeListId);
   const insets                = useSafeAreaInsets();
   const lastNewId             = useRef<string | null>(null);
   const [shareOpen, setShareOpen]       = useState(false);
   const heroFade    = useRef(new Animated.Value(1)).current;
   const prevContext = useRef(activeContext);
+  const hasActiveFamily = activeContext === 'group' && Boolean(groupId);
+
+  const handleDirectFamilyShare = useCallback(async () => {
+    if (!groupId) {
+      return;
+    }
+    if (!inviteCode) {
+      Alert.alert('Share link unavailable', 'Please try again in a moment.');
+      return;
+    }
+
+    const joinLink = `https://listorix.com/join/index.html?code=${encodeURIComponent(inviteCode)}`;
+    try {
+      await Share.share({
+        message: `Join my household grocery list on Listorix:\n${joinLink}`,
+      });
+    } catch {
+      // no-op: user may cancel the system share sheet
+    }
+  }, [groupId, inviteCode]);
+
+  const handleLeaveHousehold = useCallback(() => {
+    Alert.alert(
+      'Leave Household?',
+      'You’ll lose access to shared items.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await leaveGroup();
+            } catch {
+              Alert.alert('Could not leave household', 'Please try again in a moment.');
+            }
+          },
+        },
+      ],
+    );
+  }, [leaveGroup]);
+
+  const openFamilyMenu = useCallback(() => {
+    if (!hasActiveFamily) return;
+    router.push('/household');
+  }, [hasActiveFamily, router]);
+
+  useEffect(() => {
+    appendLaunchDiagnostic(
+      'home_mount',
+      `hydrated=${hydrated ? 'yes' : 'no'} ctx=${activeContext} items=${items.length} group=${groupId ?? 'none'}`
+    ).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    appendLaunchDiagnostic(
+      'home_state',
+      `hydrated=${hydrated ? 'yes' : 'no'} ctx=${activeContext} items=${items.length} group=${groupId ?? 'none'} share=${shareOpen ? 'open' : 'closed'}`
+    ).catch(() => undefined);
+  }, [hydrated, activeContext, items.length, groupId, shareOpen]);
+
+  useEffect(() => {
+    if (!pendingInviteCode || shareOpen) return;
+    setShareOpen(true);
+  }, [pendingInviteCode, shareOpen]);
 
   // Real-time sync — always active so owner and members both see each other's changes
   useRealtimeItems(_activeListId);
@@ -337,21 +415,6 @@ const insightText = useMemo(() => {
     return computeCurrentListInsight(items, currencySymbol);
   }, [items]);
 
-  const grouped = useMemo(() => {
-    const map: Record<string, typeof items> = {};
-    items.forEach(item => {
-      (map[item.category] = map[item.category] || []).push(item);
-    });
-    return map;
-  }, [items]);
-
-  const orderedCategories = useMemo(() => {
-    const present = new Set(Object.keys(grouped));
-    const ordered = CATEGORY_ORDER.filter(c => present.has(c));
-    const extras  = Object.keys(grouped).filter(c => !CATEGORY_ORDER.includes(c));
-    return [...ordered, ...extras];
-  }, [grouped]);
-
   const heroTitle = allDone
     ? 'All items checked'
     : totalAll === 0
@@ -368,11 +431,23 @@ const insightText = useMemo(() => {
           : 'Tracking your spend as you add prices.'
         : `${remaining} ${remaining === 1 ? 'item remains' : 'items remain'} · ${currencySymbol}${formatAmount(totalAll)} total`;
 
+  if (!hydrated) {
+    return (
+      <View style={[styles.screen, styles.loadingScreen]}>
+        <View style={[styles.loadingCard, { marginTop: insets.top + 24 }]}>
+          <View style={styles.loadingBarShort} />
+          <View style={styles.loadingBarTall} />
+          <View style={styles.loadingBarWide} />
+        </View>
+      </View>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: Colors.bg }}>
         {/* Header — empty state */}
-        <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
+        <View style={[styles.header, styles.emptyHeader, { paddingTop: insets.top + 4 }]}>
           <View style={styles.headerTopRow}>
             <ContextSwitcher
               activeContext={activeContext}
@@ -382,24 +457,35 @@ const insightText = useMemo(() => {
               onSharePress={() => setShareOpen(true)}
             />
             <View style={styles.headerIcons}>
-              <TouchableOpacity
-                style={styles.headerIconBtn}
-                onPress={() => setShareOpen(true)}
-                activeOpacity={0.7}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Text style={styles.clearIcon}>{groupId ? '👥' : '+'}</Text>
-              </TouchableOpacity>
+              {hasActiveFamily && (
+                <>
+                  <TouchableOpacity
+                    style={styles.headerIconBtn}
+                    onPress={handleDirectFamilyShare}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <IconShareArrow size={16} color={Colors.primary} strokeWidth={2} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.headerIconBtn}
+                    onPress={openFamilyMenu}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={styles.menuDots}>⋯</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
         </View>
-        <ShareListSheet visible={shareOpen} onClose={() => setShareOpen(false)} />
-        <EmptyState
+        {shareOpen && (
+          <ShareListSheet visible={shareOpen} onClose={() => setShareOpen(false)} />
+        )}
+        <ActionFirstEmptyState
           insetTop={8}
-          currencySymbol={currencySymbol}
-          activeContext={activeContext}
-          groupName={groupName}
-          hasFamily={!!groupId}
+          onAddItems={addItem}
         />
       </View>
     );
@@ -415,7 +501,9 @@ const insightText = useMemo(() => {
       />
 
       {/* Share list sheet (F5) */}
-      <ShareListSheet visible={shareOpen} onClose={() => setShareOpen(false)} />
+      {shareOpen && (
+        <ShareListSheet visible={shareOpen} onClose={() => setShareOpen(false)} />
+      )}
 
       {/* Session-end sheet — spending summary + repeat + save progress */}
       <SessionEndSheet
@@ -442,11 +530,31 @@ const insightText = useMemo(() => {
             onSharePress={() => setShareOpen(true)}
           />
           <View style={styles.headerIcons}>
+            {hasActiveFamily && (
+              <>
+                <TouchableOpacity
+                  style={styles.headerIconBtn}
+                  onPress={handleDirectFamilyShare}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <IconShareArrow size={16} color={Colors.primary} strokeWidth={2} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.headerIconBtn}
+                  onPress={openFamilyMenu}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Text style={styles.menuDots}>⋯</Text>
+                </TouchableOpacity>
+              </>
+            )}
             <TouchableOpacity
               style={styles.headerIconBtn}
-              onPress={() => Alert.alert('Clear List', 'This will save the current trip and start a fresh list.', [
+              onPress={() => Alert.alert('Delete List', 'This will permanently delete all current items from this list.', [
                 { text: 'Cancel', style: 'cancel' },
-                { text: 'Clear', style: 'destructive', onPress: () => clearList() },
+                { text: 'Delete', style: 'destructive', onPress: () => clearList() },
               ])}
               activeOpacity={0.7}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -541,16 +649,19 @@ const insightText = useMemo(() => {
           )}
         </View>
 
-        {orderedCategories.map((cat, catIdx) => (
-          <CategoryGroup
-            key={cat}
-            category={cat}
-            items={grouped[cat]}
-            onToggle={handleToggle}
-            newItemId={lastNewId.current}
-            isFirstGroup={catIdx === 0}
-          />
-        ))}
+        <View style={styles.flatListCard}>
+          {items.map((item, index) => (
+            <React.Fragment key={item.id}>
+              {index > 0 && <View style={styles.flatListDivider} />}
+              <ListItem
+                item={item}
+                onToggle={handleToggle}
+                isNew={item.id === lastNewId.current}
+                isFirst={index === 0}
+              />
+            </React.Fragment>
+          ))}
+        </View>
 </ScrollView>
     </View>
   );
@@ -572,7 +683,8 @@ function ContextSwitcher({ activeContext, groupId, groupNotification, onSwitch, 
   const thumbProgress = React.useRef(new Animated.Value(activeContext === 'group' ? 1 : 0)).current;
 
   async function handleSwitch(ctx: 'personal' | 'group') {
-    if (switching || ctx === activeContext) return;
+    if (switching) return;
+    if (ctx === activeContext) return;
     if (ctx === 'group' && !groupId) {
       onSharePress();
       return;
@@ -652,13 +764,13 @@ const ctxStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    maxWidth: 184,
-    minHeight: 40,
+    maxWidth: 174,
+    minHeight: 38,
     padding: 2,
-    borderRadius: 22,
-    backgroundColor: '#EEF2F6',
+    borderRadius: 20,
+    backgroundColor: '#F6F8FB',
     borderWidth: 1,
-    borderColor: '#DDE4EB',
+    borderColor: '#E6EBF2',
     position: 'relative',
   },
   thumb: {
@@ -666,24 +778,24 @@ const ctxStyles = StyleSheet.create({
     top: 2,
     left: 2,
     bottom: 2,
-    borderRadius: 20,
+    borderRadius: 18,
     backgroundColor: '#FFFFFF',
     shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   segment: {
     flex: 1,
-    minHeight: 36,
-    borderRadius: 20,
+    minHeight: 34,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
   segmentText: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '600',
     color: Colors.textSecondary,
   },
@@ -703,89 +815,159 @@ const ctxStyles = StyleSheet.create({
   },
 });
 
-function EmptyState({
+function ActionFirstEmptyState({
   insetTop,
-  currencySymbol,
-  activeContext,
-  groupName,
-  hasFamily,
+  onAddItems,
 }: {
   insetTop: number;
-  currencySymbol: string;
-  activeContext: 'personal' | 'group';
-  groupName: string | null;
-  hasFamily: boolean;
+  onAddItems: (item: ParsedItem) => void;
 }) {
-  const isFamily = activeContext === 'group';
-  const title = isFamily
-    ? `Start your ${groupName ?? 'family'} list`
-    : `Build your grocery${'\n'}list in seconds`;
-  const subtitle = isFamily
-    ? 'Your shared household list is empty.\nAdd the first item and everyone will see it.'
-    : hasFamily
-      ? 'Your personal list is empty.\nSwitch to Family anytime or start a fresh list here.'
-      : 'Add items, set prices if you want,\nand keep your total in view';
-  const ctaLabel = isFamily ? 'Add family items' : 'Start your list';
+  const inputRef = React.useRef<TextInput>(null);
+  const [text, setText] = React.useState('');
+  const [keyboardOpen, setKeyboardOpen] = React.useState(false);
+
+  const parsedItems = React.useMemo(
+    () => (text.trim() ? parseBulkText(text) : []),
+    [text],
+  );
+
+  const hasParsedItems = parsedItems.length > 0;
+
+  useEffect(() => {
+    const timer = setTimeout(() => inputRef.current?.focus(), 120);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      const onChange = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
+        const screenHeight = Dimensions.get('window').height;
+        const keyboardHeight = Math.max(0, screenHeight - event.endCoordinates.screenY);
+        setKeyboardOpen(keyboardHeight > 0);
+      });
+      const onHide = Keyboard.addListener('keyboardWillHide', () => {
+        setKeyboardOpen(false);
+      });
+      return () => {
+        onChange.remove();
+        onHide.remove();
+      };
+    }
+
+    const onShow = Keyboard.addListener('keyboardDidShow', () => {
+      setKeyboardOpen(true);
+    });
+    const onHide = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardOpen(false);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
+
+  function handleAddItems() {
+    if (!hasParsedItems) return;
+    parsedItems.forEach((item) => onAddItems(item));
+    setText('');
+    inputRef.current?.blur();
+    Keyboard.dismiss();
+  }
+
+  function dismissInput() {
+    inputRef.current?.blur();
+    Keyboard.dismiss();
+  }
+
+  const ctaLabel = `Add ${parsedItems.length} ${parsedItems.length === 1 ? 'item' : 'items'}`;
 
   return (
-    <View style={[styles.empty, { paddingTop: insetTop + 8 }]}>
-
-      {/* Illustration — grocery list card, no floating distractions */}
-      <View style={styles.emptyIllustration}>
-        <View style={styles.listCard}>
-          <View style={styles.listRow}>
-            <Text style={styles.listRowEmoji}>🥛</Text>
-            <Text style={styles.listRowName}>Milk</Text>
-            <Text style={styles.listRowPrice}>{currencySymbol}60</Text>
-          </View>
-          <View style={styles.listDivider} />
-          <View style={styles.listRow}>
-            <Text style={styles.listRowEmoji}>🥦</Text>
-            <Text style={styles.listRowName}>Broccoli</Text>
-            <Text style={styles.listRowPrice}>{currencySymbol}40</Text>
-          </View>
-          <View style={styles.listDivider} />
-          <View style={styles.listRow}>
-            <Text style={styles.listRowEmoji}>🍎</Text>
-            <Text style={styles.listRowName}>Apples</Text>
-            <Text style={styles.listRowPrice}>{currencySymbol}90</Text>
-          </View>
-          <View style={styles.listTotalLine} />
-          <View style={styles.listTotalRow}>
-            <Text style={styles.listTotalLabel}>Total</Text>
-            <Text style={styles.listTotalAmount}>{currencySymbol}190</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Headline */}
-      <Text style={styles.emptyTitle}>
-        {title}
-      </Text>
-
-      {/* Subtext */}
-      <Text style={styles.emptySubtitle}>
-        {subtitle}
-      </Text>
-
-      {/* Primary CTA */}
-      <TouchableOpacity
-        style={styles.emptyCtaBtn}
-        onPress={() => fabEvents.openFAB()}
-        activeOpacity={0.85}
+    <Pressable
+      style={[
+        styles.empty,
+        { paddingTop: insetTop, paddingBottom: keyboardOpen ? 12 : 128 },
+      ]}
+      onPress={dismissInput}
+    >
+      <KeyboardAvoidingView
+        style={styles.emptyContent}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
       >
-        <Text style={styles.emptyCtaText}>{ctaLabel}</Text>
-      </TouchableOpacity>
+        <View style={styles.emptyIllustration}>
+          <TouchableOpacity
+            style={styles.primaryInputCard}
+            activeOpacity={1}
+            onPress={() => inputRef.current?.focus()}
+          >
+            <TextInput
+              ref={inputRef}
+              style={styles.emptyInput}
+              value={text}
+              onChangeText={setText}
+              multiline
+              autoFocus
+              placeholder={'Add items (one per line)\n\nmilk\n1kg sugar\nbiscuits'}
+              placeholderTextColor="#B5BFCC"
+              textAlignVertical="top"
+              autoCapitalize="sentences"
+              autoCorrect={false}
+              selectionColor={Colors.primary}
+            />
+          </TouchableOpacity>
+        </View>
 
-      {/* Reassurance */}
-      <Text style={styles.emptyReassurance}>No sign-up required</Text>
-    </View>
+        <View style={styles.emptyBottomArea}>
+          {hasParsedItems && (
+            <TouchableOpacity
+              style={styles.emptyCtaBtn}
+              onPress={handleAddItems}
+              activeOpacity={0.88}
+            >
+              <Text style={styles.emptyCtaText}>{ctaLabel}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </Pressable>
   );
 }
 
-// ── List-picker sheet styles ──────────────────────────────────────────────────
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.bg },
+  loadingScreen: {
+    paddingHorizontal: Spacing.md,
+  },
+  loadingCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 20,
+    gap: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  loadingBarShort: {
+    width: 112,
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: '#E9EEF4',
+  },
+  loadingBarTall: {
+    width: 164,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: '#EEF3F8',
+  },
+  loadingBarWide: {
+    width: '100%',
+    height: 14,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
+  },
 
   // ── Header ─────────────────────────────────────────────────────────────
   header: {
@@ -793,6 +975,9 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 16,
     backgroundColor: Colors.bg,
+  },
+  emptyHeader: {
+    paddingBottom: 6,
   },
 
   // Top row: context pills left, icons right
@@ -815,6 +1000,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  menuDots: {
+    fontSize: 18,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+    marginTop: -2,
   },
   clearIcon: { fontSize: 14 },
   amountBlock: { gap: 3 },
@@ -952,6 +1144,23 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   progressTextNear: { color: Colors.success },
+  flatListCard: {
+    marginHorizontal: Spacing.md,
+    marginBottom: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.09,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  flatListDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#EBEBED',
+    marginLeft: 50,
+  },
 
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 180 },
@@ -959,40 +1168,138 @@ const styles = StyleSheet.create({
   // ── Empty state ────────────────────────────────────────────────────────────
   empty: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: Colors.bg,
-    paddingHorizontal: 32,
-    // paddingBottom biases visual centre upward; larger = higher
-    paddingBottom: 120,
+    paddingHorizontal: 18,
+    paddingBottom: 128,
   },
-
-  // Illustration container — zero gap to headline
+  emptyContent: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 360,
+    alignSelf: 'center',
+    paddingTop: 4,
+  },
   emptyIllustration: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 0,
+    width: '100%',
+    marginBottom: 12,
+  },
+  primaryInputCard: {
+    width: '100%',
+    minHeight: 214,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E7ECF3',
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.04,
+    shadowRadius: 18,
+    elevation: 2,
   },
 
   // Grocery list card — strong visual anchor, barely-there shadow
-  listCard: {
-    width: 222,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 20,
-    elevation: 2,
+  notePreview: {
+    width: 244,
+    backgroundColor: '#F4F6F9',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E5EAF1',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    gap: 10,
+  },
+  notePreviewCard: {
+    width: '100%',
+    backgroundColor: '#F4F6F9',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E5EAF1',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    gap: 8,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.03,
+    shadowRadius: 14,
+    elevation: 1,
+  },
+  notePreviewCardFocused: {
+    borderColor: '#C9D8EA',
+    shadowOpacity: 0.06,
+  },
+  notePreviewTopBar: {
+    minHeight: 26,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  notePreviewHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: '#D6DEE8',
+  },
+  noteDismissBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#E8EEF6',
+  },
+  noteDismissText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4C5D72',
+    letterSpacing: -0.1,
+  },
+  noteDismissSpacer: {
+    width: 44,
+    height: 1,
+  },
+  emptyInput: {
+    minHeight: 160,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    fontSize: 18,
+    lineHeight: 30,
+    fontWeight: '400',
+    color: '#2C3440',
+    letterSpacing: -0.2,
+    textAlignVertical: 'top',
+  },
+  notePreviewTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  notePreviewPlaceholder: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: '#95A0AF',
+  },
+  notePreviewCursor: {
+    width: 2,
+    height: 16,
+    borderRadius: 999,
+    backgroundColor: Colors.primary,
   },
   listRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 2,
   },
   listRowEmoji: { fontSize: 14, width: 20 },
+  notePreviewText: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '500',
+    color: '#2C3440',
+    letterSpacing: -0.2,
+  },
   listRowName: {
     flex: 1,
     fontSize: 12,
@@ -1007,8 +1314,8 @@ const styles = StyleSheet.create({
   },
   listDivider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: '#EBEBED',
-    marginLeft: 26,
+    backgroundColor: '#E1E7EF',
+    marginLeft: 0,
   },
   listTotalLine: {
     height: 1,
@@ -1035,46 +1342,43 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
 
-  // Headline
-  emptyTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    letterSpacing: -0.6,
-    lineHeight: 34,
-    marginBottom: 8,
+  emptyBottomArea: {
+    marginTop: 'auto',
+    paddingTop: 8,
   },
 
-  // Subtext
-  emptySubtitle: {
-    fontSize: 15,
-    fontWeight: '400',
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 23,
-    marginBottom: 20,
-  },
-
-  // Primary CTA — full width, blue, rounded, minimal shadow
   emptyCtaBtn: {
     alignSelf: 'stretch',
+    width: '100%',
     backgroundColor: Colors.primary,
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: 'center',
     shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.14,
-    shadowRadius: 6,
-    elevation: 3,
-    marginBottom: 10,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.24,
+    shadowRadius: 16,
+    elevation: 4,
   },
   emptyCtaText: {
     fontSize: 17,
     fontWeight: '700',
     color: '#FFFFFF',
     letterSpacing: -0.2,
+  },
+  emptySecondaryCta: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: '#EEF3F8',
+    borderWidth: 1,
+    borderColor: '#E1E8F0',
+  },
+  emptySecondaryCtaText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#516173',
+    letterSpacing: -0.1,
   },
 
   // Reassurance line — clearly visible, still secondary
@@ -1104,4 +1408,70 @@ const styles = StyleSheet.create({
   },
 });
 
+/*
+  const handleDirectFamilyShare = useCallback(async () => {
+    if (!groupId || !inviteCode) {
+      setShareOpen(true);
+      return;
+    }
 
+    const joinLink = `https://listorix.com/join/index.html?code=${encodeURIComponent(inviteCode)}`;
+    try {
+      await Share.share({
+        message: `Join my household grocery list on Listorix:\n${joinLink}`,
+      });
+    } catch {
+      // no-op: user may cancel the system share sheet
+    }
+  }, [groupId, inviteCode]);
+
+  const handleLeaveHousehold = useCallback(() => {
+    Alert.alert(
+      'Leave Household?',
+      'You’ll lose access to shared items.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await leaveGroup();
+            } catch {
+              Alert.alert('Could not leave household', 'Please try again in a moment.');
+            }
+          },
+        },
+      ],
+    );
+  }, [leaveGroup]);
+
+  const openFamilyMenu = useCallback(() => {
+    if (!hasActiveFamily) return;
+
+    const viewMembers = () => setShareOpen(true);
+    const leaveFamily = () => handleLeaveHousehold();
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['View members', 'Leave household', 'Cancel'],
+          cancelButtonIndex: 2,
+          destructiveButtonIndex: 1,
+          title: 'Family',
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) viewMembers();
+          if (buttonIndex === 1) leaveFamily();
+        },
+      );
+      return;
+    }
+
+    Alert.alert('Family', undefined, [
+      { text: 'View members', onPress: viewMembers },
+      { text: 'Leave household', style: 'destructive', onPress: leaveFamily },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [hasActiveFamily, handleLeaveHousehold]);
+*/

@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
+import type { NotificationReminderPrefs } from './storage';
 
 // How notifications appear when app is in foreground
 Notifications.setNotificationHandler({
@@ -16,6 +17,7 @@ Notifications.setNotificationHandler({
 });
 
 const WEEKLY_REMINDER_ID = 'listorix-weekly-reminder';
+const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
 export const FAMILY_LIST_CATEGORY_ID = 'family-list-update';
 export const OPEN_FAMILY_LIST_ACTION_ID = 'OPEN_FAMILY_LIST';
 export const MARK_FAMILY_ITEM_DONE_ACTION_ID = 'MARK_FAMILY_ITEM_DONE';
@@ -24,6 +26,13 @@ export interface NotificationNavigationPayload {
   group_id?: string;
   list_id?: string;
   item_id?: string;
+  item_name?: string;
+  preview_names?: string[];
+  remaining_count?: number;
+}
+
+interface RegisterPushTokenOptions {
+  requestPermission?: boolean;
 }
 
 export async function initializeNotificationActions(): Promise<void> {
@@ -83,7 +92,23 @@ export async function requestNotificationPermission(): Promise<boolean> {
  * Schedule a weekly grocery reminder.
  * Fires every Saturday at 10:00 AM — a common grocery shopping day.
  */
-export async function scheduleWeeklyReminder(): Promise<void> {
+export function formatWeeklyReminderLabel(prefs: Pick<NotificationReminderPrefs, 'weekday' | 'hour' | 'minute'>): string {
+  const date = new Date();
+  date.setHours(prefs.hour, prefs.minute, 0, 0);
+  const time = date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return `${WEEKDAY_LABELS[prefs.weekday - 1] ?? WEEKDAY_LABELS[6]} at ${time}`;
+}
+
+export async function scheduleWeeklyReminder(
+  prefs: Pick<NotificationReminderPrefs, 'weekday' | 'hour' | 'minute'> = {
+    weekday: 7,
+    hour: 10,
+    minute: 0,
+  },
+): Promise<void> {
   // Cancel any existing reminder first to avoid duplicates
   await cancelWeeklyReminder();
 
@@ -96,9 +121,9 @@ export async function scheduleWeeklyReminder(): Promise<void> {
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-      weekday: 7,   // Saturday (1 = Sunday … 7 = Saturday)
-      hour: 10,
-      minute: 0,
+      weekday: prefs.weekday,
+      hour: prefs.hour,
+      minute: prefs.minute,
     },
   });
 }
@@ -130,21 +155,24 @@ export async function areNotificationsPermitted(): Promise<boolean> {
  * - Safe to call multiple times — upserts on user_id conflict.
  * - Call this after sign-in AND after joining/creating a group.
  */
-export async function registerPushToken(): Promise<void> {
+export async function registerPushToken(
+  options: RegisterPushTokenOptions = {},
+): Promise<void> {
   try {
     if (!Device.isDevice) return; // simulators can't receive push
 
     // Request permission if not already granted — shows the iOS dialog
     const { status: existing } = await Notifications.getPermissionsAsync();
     let finalStatus = existing;
-    if (existing !== 'granted') {
+    if (existing !== 'granted' && options.requestPermission) {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
     if (finalStatus !== 'granted') return; // user denied
 
     const projectId =
-      Constants.expoConfig?.extra?.eas?.projectId as string | undefined;
+      Constants.easConfig?.projectId
+      ?? (Constants.expoConfig?.extra?.eas?.projectId as string | undefined);
     if (!projectId) return;
 
     const { data: tokenData } = await Notifications.getExpoPushTokenAsync({ projectId });
@@ -153,13 +181,17 @@ export async function registerPushToken(): Promise<void> {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return;
 
-    await supabase
+    const { error } = await supabase
       .from('push_tokens')
       .upsert(
         { user_id: session.user.id, token: tokenData, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' },
       );
+    if (error) {
+      console.warn('[notifications] registerPushToken upsert failed:', error.message);
+    }
   } catch {
     // Non-critical — push token registration failure should never break the app
   }
 }
+

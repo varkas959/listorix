@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, ActivityIndicator, Dimensions,
+  View, Text, ScrollView, StyleSheet, ActivityIndicator, Dimensions, TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
@@ -19,6 +19,15 @@ const RED      = '#E53E3E';
 const GREEN    = '#27AE60';
 const AMBER    = '#D97706';
 const BG       = '#F7F8FA';
+
+type InsightsRangeKey = 'this_month' | 'last_month' | 'last_3_months' | 'all_time';
+
+const RANGE_OPTIONS: { key: InsightsRangeKey; label: string }[] = [
+  { key: 'this_month', label: 'This month' },
+  { key: 'last_month', label: 'Last month' },
+  { key: 'last_3_months', label: 'Last 3 months' },
+  { key: 'all_time', label: 'All time' },
+];
 
 // ── Data helpers ──────────────────────────────────────────────────────────────
 
@@ -255,6 +264,44 @@ function localToRemote(t: TripSummary): RemoteTrip {
   return { id: t.id, completedAt: t.date, total: t.total, itemCount: t.items.length, categories: [...new Set(t.items.map(i => i.category))] };
 }
 
+function getRangeBounds(range: InsightsRangeKey, now: Date): { start: Date | null; end: Date | null } {
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  switch (range) {
+    case 'this_month':
+      return { start: new Date(year, month, 1), end: new Date(year, month + 1, 1) };
+    case 'last_month':
+      return { start: new Date(year, month - 1, 1), end: new Date(year, month, 1) };
+    case 'last_3_months':
+      return { start: new Date(year, month - 2, 1), end: new Date(year, month + 1, 1) };
+    default:
+      return { start: null, end: null };
+  }
+}
+
+function isWithinRange(timestamp: number, range: InsightsRangeKey, now: Date): boolean {
+  const { start, end } = getRangeBounds(range, now);
+  if (!start || !end) return true;
+  return timestamp >= start.getTime() && timestamp < end.getTime();
+}
+
+function getRangeLabel(range: InsightsRangeKey, locale: string, now: Date): string {
+  switch (range) {
+    case 'this_month':
+      return now.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+    case 'last_month':
+      return new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString(locale, {
+        month: 'long',
+        year: 'numeric',
+      });
+    case 'last_3_months':
+      return 'Last 3 months';
+    default:
+      return 'All time';
+  }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function InsightsScreen() {
@@ -264,6 +311,7 @@ export default function InsightsScreen() {
   const [localTrips,  setLocalTrips]  = useState<TripSummary[]>([]);
   const [mergedTrips, setMergedTrips] = useState<RemoteTrip[]>([]);
   const [loading,     setLoading]     = useState(true);
+  const [selectedRange, setSelectedRange] = useState<InsightsRangeKey>('this_month');
 
   useFocusEffect(
     useCallback(() => {
@@ -306,24 +354,24 @@ export default function InsightsScreen() {
 
   // ── Derived ──────────────────────────────────────────────────────────────────
   const now  = new Date();
-  const cMo  = now.getMonth(), cYr = now.getFullYear();
+  const rangeLabel = getRangeLabel(selectedRange, locale, now);
+  const filteredLocalTrips = localTrips.filter(t => isWithinRange(t.date, selectedRange, now));
+  const filteredMergedTrips = mergedTrips.filter(t => isWithinRange(t.completedAt, selectedRange, now));
+  const currTotal  = filteredMergedTrips.reduce((s, t) => s + t.total, 0);
 
-  const currTrips  = localTrips.filter(t => { const d = new Date(t.date); return d.getMonth() === cMo && d.getFullYear() === cYr; });
-  const currTotal  = currTrips.reduce((s, t) => s + t.total, 0);
-
-  // Top category this month — for the primary card pill
-  const currCat      = getCatTotals(currTrips);
+  // Top category in the selected period — for the primary card pill
+  const currCat      = getCatTotals(filteredLocalTrips);
   const topCatEntry  = Object.entries(currCat).sort((a, b) => b[1] - a[1])[0];
   const topCatName   = topCatEntry ? topCatEntry[0] : null;
   const topCatAmount = topCatEntry ? Math.round(topCatEntry[1]) : 0;
 
-  // Category totals all-time
-  const catMap    = getCatTotals(localTrips);
+  // Category totals in the selected range
+  const catMap    = getCatTotals(filteredLocalTrips);
   const catSorted = Object.entries(catMap).map(([cat, amount]) => ({ cat, amount: Math.round(amount) })).sort((a, b) => b.amount - a.amount);
   const maxCatAmt = catSorted[0]?.amount ?? 1;
 
-  // Monthly trend — only show if ≥ 3 months have data
-  const monthlyData    = getMonthlyData(mergedTrips, locale);
+  // Monthly trend — only show if ≥ 3 months have data inside the selected range
+  const monthlyData    = getMonthlyData(filteredMergedTrips, locale);
   const monthsWithData = monthlyData.filter(d => d.amount > 0).length;
   const showTrend      = monthsWithData >= 3;
   const maxMonth       = Math.max(...monthlyData.map(d => d.amount), 1);
@@ -332,12 +380,12 @@ export default function InsightsScreen() {
     : null;
 
   // Spending highlights — ranked by signal strength, top 3
-  const highlights = computeRankedHighlights(localTrips, catSorted, currencySymbol);
+  const highlights = computeRankedHighlights(filteredLocalTrips, catSorted, currencySymbol);
 
   // Quick stats
-  const totalSpend = mergedTrips.reduce((s, t) => s + t.total, 0);
-  const totalItems = mergedTrips.reduce((s, t) => s + t.itemCount, 0);
-  const avgSpend   = mergedTrips.length > 0 ? Math.round(totalSpend / mergedTrips.length) : 0;
+  const totalSpend = filteredMergedTrips.reduce((s, t) => s + t.total, 0);
+  const totalItems = filteredMergedTrips.reduce((s, t) => s + t.itemCount, 0);
+  const avgSpend   = filteredMergedTrips.length > 0 ? Math.round(totalSpend / filteredMergedTrips.length) : 0;
 
   if (loading) return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
@@ -360,6 +408,23 @@ export default function InsightsScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
 
         <Text style={styles.pageTitle}>Spending Insights</Text>
+        <View style={styles.rangePillsWrap}>
+          {RANGE_OPTIONS.map((option) => {
+            const active = option.key === selectedRange;
+            return (
+              <TouchableOpacity
+                key={option.key}
+                style={[styles.rangePill, active && styles.rangePillActive]}
+                onPress={() => setSelectedRange(option.key)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.rangePillText, active && styles.rangePillTextActive]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
         {/* ── SECTION 1: Primary Insight ───────────────────────────────────── */}
         {currTotal > 0 && (
@@ -369,6 +434,8 @@ export default function InsightsScreen() {
             topCatAmount={topCatAmount}
             currencySymbol={currencySymbol}
             locale={locale}
+            rangeLabel={rangeLabel}
+            selectedRange={selectedRange}
           />
         )}
 
@@ -421,7 +488,7 @@ export default function InsightsScreen() {
         {/* ── SECTION 5: Quick Stats (neutral, compact) ────────────────────── */}
         <View style={styles.statsRow}>
           {[
-            { label: 'Total Trips',  value: String(mergedTrips.length) },
+            { label: 'Total Trips',  value: String(filteredMergedTrips.length) },
             { label: 'Avg / Trip',   value: `${currencySymbol}${formatAmount(avgSpend)}` },
             { label: 'Items Bought', value: String(totalItems)          },
           ].map(s => (
@@ -450,26 +517,27 @@ function SectionHeader({ emoji, title }: { emoji: string; title: string }) {
   );
 }
 
-function PrimaryCard({ currTotal, topCatName, topCatAmount, currencySymbol, locale }: {
+function PrimaryCard({ currTotal, topCatName, topCatAmount, currencySymbol, locale, rangeLabel, selectedRange }: {
   currTotal: number;
   topCatName: string | null;
   topCatAmount: number;
   currencySymbol: string;
   locale: string;
+  rangeLabel: string;
+  selectedRange: InsightsRangeKey;
 }) {
   const catColor = topCatName ? (CategoryColors[topCatName] ?? Colors.primary) : Colors.primary;
+  const subLabel = selectedRange === 'all_time' ? 'spent across your full history' : `spent in ${rangeLabel}`;
   return (
     <View style={styles.primaryCard}>
       <View style={styles.primaryIconRow}>
         <Text style={styles.primaryEmoji}>🧾</Text>
-        <Text style={styles.primaryMonth}>
-          {new Date().toLocaleDateString(locale, { month: 'long', year: 'numeric' })}
-        </Text>
+        <Text style={styles.primaryMonth}>{rangeLabel}</Text>
       </View>
       <Text style={styles.primaryHeadline}>
         {currencySymbol}{formatAmount(currTotal)}
       </Text>
-      <Text style={styles.primarySubLabel}>spent this month</Text>
+      <Text style={styles.primarySubLabel}>{subLabel}</Text>
       {topCatName && topCatAmount > 0 && (
         <View style={[styles.primaryCatPill, { backgroundColor: `${catColor}18`, borderColor: `${catColor}40` }]}>
           <View style={[styles.primaryCatDot, { backgroundColor: catColor }]} />
@@ -563,8 +631,31 @@ const styles = StyleSheet.create({
   emptyEmoji: { fontSize: 48, marginBottom: 4 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center' },
   emptyBody:  { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  emptyTitleSmall: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center' },
+  emptyBodySmall:  { fontSize: 13, color: Colors.textSecondary, textAlign: 'center', lineHeight: 19 },
 
   pageTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -0.4, marginBottom: 2 },
+  rangePillsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 2 },
+  rangePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+  },
+  rangePillActive: {
+    backgroundColor: '#EAF3FF',
+    borderColor: '#BFD7FF',
+  },
+  rangePillText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  rangePillTextActive: {
+    color: Colors.primary,
+  },
 
   // Section header (emoji icon + title)
   sectionHeader:    { flexDirection: 'row', alignItems: 'center', gap: 8 },

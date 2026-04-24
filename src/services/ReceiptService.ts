@@ -28,6 +28,13 @@ export class NotReceiptError extends Error {
   }
 }
 
+export class AuthRequiredError extends Error {
+  constructor(message = 'Sign in to scan receipts.') {
+    super(message);
+    this.name = 'AuthRequiredError';
+  }
+}
+
 const SUPABASE_URL      = process.env.EXPO_PUBLIC_SUPABASE_URL      ?? '';
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
@@ -117,9 +124,11 @@ export async function pickReceiptImage(
 export async function scanReceipt(
   base64Image: string,
 ): Promise<{ items: ParsedItem[]; remaining: number | null }> {
-  // Get user JWT
   const { data: { session } } = await supabase.auth.getSession();
-  const jwt = session?.access_token ?? SUPABASE_ANON_KEY;
+  if (!session?.access_token) {
+    throw new AuthRequiredError();
+  }
+  const jwt = session.access_token;
 
   const endpoint = `${SUPABASE_URL}/functions/v1/scan-receipt`;
 
@@ -144,6 +153,10 @@ export async function scanReceipt(
       data.error ?? 'Daily scan limit reached',
       data.remaining ?? 0,
     );
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    throw new AuthRequiredError();
   }
 
   if (res.status === 422 && data.error === 'not_a_receipt') {

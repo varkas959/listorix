@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { getCurrency } from '../services/storage';
+import { getCurrency, setCurrency } from '../services/storage';
 
 export interface CurrencySettings {
   locale: string;
@@ -175,4 +175,9 @@ export function formatDate(
 
 export function formatMonth(ts: number): string {
   return formatDate(ts, { month: 'short' });
+}
+
+export async function saveCurrencyPreference(code: string): Promise<CurrencySettings> {
+  await setCurrency(code);
+  return initializeCurrencySettings();
 }

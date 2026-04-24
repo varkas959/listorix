@@ -29,6 +29,7 @@ import {
   createGroup    as apiCreateGroup,
   joinGroup      as apiJoinGroup,
   leaveGroup     as apiLeaveGroup,
+  removeGroupMember as apiRemoveGroupMember,
   getGroupWithMembers,
   getGroupActiveListId,
   getOrCreateGroupActiveListId,
@@ -36,6 +37,7 @@ import {
   HouseholdSetupError,
 } from '../services/api';
 import { useAuthStore } from './useAuthStore';
+import { appendLaunchDiagnostic } from '../services/launchDiagnostics';
 
 const HIGH_PRICE_FRACTION = 0.18;
 const ACTIVE_CONTEXT_KEY  = 'listorix:activeContext';
@@ -56,6 +58,7 @@ export interface SavedEvent {
 interface ListState {
   items:                GroceryItem[];
   hydrated:             boolean;
+  bootstrapped:         boolean;
   lastTripTotal:        number;
   lastTripStore:        string;
   lastTripByCategory:   Record<string, number>;
@@ -77,7 +80,10 @@ interface ListState {
   activeContext: 'personal' | 'group';
   /** true when a family member adds an item while user is on personal context */
   groupNotification: boolean;
+  pendingInviteCode: string | null;
+  setPendingInviteCode: (code: string | null) => void;
   clearGroupNotification: () => void;
+  resetForSignedOut: () => Promise<void>;
 
   hydrate:         () => Promise<void>;
   addItem:         (data: ParsedItem) => void;
@@ -100,10 +106,12 @@ interface ListState {
   createGroup:   (name?: string) => Promise<'ok' | 'schema_missing' | 'error'>;
   joinGroup:     (code: string) => Promise<'ok' | 'not_found' | 'error'>;
   leaveGroup:    () => Promise<void>;
+  removeGroupMember: (userId: string) => Promise<'ok' | 'error'>;
   switchContext: (ctx: 'personal' | 'group') => Promise<void>;
 }
 
 let _nextId = 100;
+let _hydrateRun = 0;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -117,7 +125,8 @@ function buildRichHistory(existing: PriceHistory, items: GroceryItem[]): PriceHi
   const updated = { ...existing };
   for (const item of items) {
     if (item.price <= 0) continue;
-    const key = item.name.toLowerCase();
+    const key = item.name?.trim().toLowerCase();
+    if (!key) continue;
     const prev: PriceRecord | undefined = updated[key];
     updated[key] = prev
       ? {
@@ -147,6 +156,7 @@ function persistWidgetData(items: GroceryItem[]) {
 export const useListStore = create<ListState>((set, get) => ({
   items:                [],
   hydrated:             false,
+  bootstrapped:         false,
   lastTripTotal:        0,
   lastTripStore:        '',
   lastTripByCategory:   {},
@@ -164,13 +174,36 @@ export const useListStore = create<ListState>((set, get) => ({
   groupMembers:         [],
   activeContext:        'personal',
   groupNotification:    false,
+  pendingInviteCode:    null,
+  setPendingInviteCode: (code) => set({ pendingInviteCode: code }),
   clearGroupNotification: () => set({ groupNotification: false }),
+  resetForSignedOut: async () => {
+    const personalItems = withCountDefaults(await loadItems('personal'));
+    await AsyncStorage.setItem(ACTIVE_CONTEXT_KEY, 'personal');
+    await saveItems([], 'group');
+    set({
+      items: personalItems,
+      hydrated: true,
+      bootstrapped: true,
+      _activeListId: null,
+      groupId: null,
+      groupName: null,
+      inviteCode: null,
+      groupMembers: [],
+      activeContext: 'personal',
+      groupNotification: false,
+      pendingInviteCode: null,
+    });
+    persistWidgetData(personalItems);
+  },
   categoryOverrides:    {},
   priceNudgePending:    false,
   clearPriceNudge:      () => set({ priceNudgePending: false }),
 
   // ── hydrate ────────────────────────────────────────────────────────────────
   hydrate: async () => {
+    const runId = ++_hydrateRun;
+    appendLaunchDiagnostic('store_hydrate_start').catch(() => undefined);
     await clearLegacyItemsCache();
 
     const [savedContext, rawPersonalStored, rawGroupStored, priceMap, richHistory, firstListDone, catOverrides] = await Promise.all([
@@ -182,8 +215,16 @@ export const useListStore = create<ListState>((set, get) => ({
       getHasCompletedFirstList(),
       loadCategoryOverrides(),
     ]);
+    if (runId !== _hydrateRun) return;
 
-    const cachedContext: ItemsContext = savedContext === 'group' ? 'group' : 'personal';
+    const user = useAuthStore.getState().user;
+    const cachedContext: ItemsContext = !user
+      ? 'personal'
+      : (savedContext === 'group' ? 'group' : 'personal');
+    appendLaunchDiagnostic(
+      'store_hydrate_cached',
+      `ctx=${cachedContext} personal=${rawPersonalStored.length} group=${rawGroupStored.length} user=${user?.id ?? 'guest'}`
+    ).catch(() => undefined);
     const stored = withCountDefaults(
       cachedContext === 'group' ? rawGroupStored : rawPersonalStored
     );
@@ -192,14 +233,33 @@ export const useListStore = create<ListState>((set, get) => ({
     set({
       items:                 stored,
       hydrated:              true,
+      bootstrapped:          false,
       hasCompletedFirstList: firstListDone,
       richPriceHistory:      richHistory,
       categoryOverrides:     catOverrides,
       ...(hasReal ? { lastItemPrice: priceMap, priceHistoryHydrated: true } : {}),
     });
 
-    const user = useAuthStore.getState().user;
-    if (!user) return;
+    if (!user) {
+      if (savedContext === 'group') {
+        await AsyncStorage.setItem(ACTIVE_CONTEXT_KEY, 'personal');
+      }
+      set({
+        items: withCountDefaults(rawPersonalStored),
+        hydrated: true,
+        bootstrapped: true,
+        _activeListId: null,
+        groupId: null,
+        groupName: null,
+        inviteCode: null,
+        groupMembers: [],
+        activeContext: 'personal',
+        groupNotification: false,
+        pendingInviteCode: null,
+      });
+      appendLaunchDiagnostic('store_hydrate_guest_ready', `personal=${rawPersonalStored.length}`).catch(() => undefined);
+      return;
+    }
 
     try {
       set({ syncStatus: 'syncing' });
@@ -209,6 +269,7 @@ export const useListStore = create<ListState>((set, get) => ({
         getRemotePriceHistory(user.id),
         getGroupWithMembers(user.id),    // fetch group if user has one
       ]);
+      if (runId !== _hydrateRun) return;
 
       // Set group state
       if (groupData) {
@@ -224,6 +285,22 @@ export const useListStore = create<ListState>((set, get) => ({
         if (!savedContext) {
           AsyncStorage.setItem(ACTIVE_CONTEXT_KEY, 'group');
         }
+        appendLaunchDiagnostic(
+          'store_hydrate_group_found',
+          `group=${groupData.group.id} members=${groupData.members.length} ctx=${ctx}`
+        ).catch(() => undefined);
+      } else if (savedContext === 'group') {
+        set({
+          activeContext: 'personal',
+          items: withCountDefaults(rawPersonalStored),
+          groupId: null,
+          groupName: null,
+          inviteCode: null,
+          groupMembers: [],
+        });
+        AsyncStorage.setItem(ACTIVE_CONTEXT_KEY, 'personal');
+        saveItems([], 'group');
+        appendLaunchDiagnostic('store_hydrate_group_missing_fallback', `personal=${rawPersonalStored.length}`).catch(() => undefined);
       }
 
       // Load list based on active context
@@ -235,6 +312,7 @@ export const useListStore = create<ListState>((set, get) => ({
         const groupListId = await getGroupActiveListId(groupData.group.id);
         if (groupListId) {
           const groupItems = await getItemsForList(groupListId);
+          if (runId !== _hydrateRun) return;
           const withCount  = withCountDefaults(groupItems);
           // Only overwrite in-memory items AND local cache when remote has items.
           // If remote returns empty (network hiccup / empty list), keep whatever
@@ -242,14 +320,18 @@ export const useListStore = create<ListState>((set, get) => ({
           if (withCount.length > 0) {
             set({ _activeListId: groupListId, items: withCount });
             saveItems(withCount, 'group');
+            appendLaunchDiagnostic('store_hydrate_group_items', `count=${withCount.length}`).catch(() => undefined);
           } else {
             set({ _activeListId: groupListId });
+            appendLaunchDiagnostic('store_hydrate_group_empty', `cached=${rawGroupStored.length}`).catch(() => undefined);
           }
         } else {
           // No active group list yet — create one now (first use or after trip complete)
           try {
             const newListId = await getOrCreateGroupActiveListId(user.id, groupData.group.id);
+            if (runId !== _hydrateRun) return;
             set({ _activeListId: newListId, items: withCountDefaults(rawGroupStored) });
+            appendLaunchDiagnostic('store_hydrate_group_list_created', `cached=${rawGroupStored.length}`).catch(() => undefined);
           } catch { /* stay offline */ }
         }
       } else {
@@ -258,10 +340,13 @@ export const useListStore = create<ListState>((set, get) => ({
           const withCount = withCountDefaults(remoteList.items);
           set({ _activeListId: remoteList.listId, items: withCount });
           saveItems(withCount, 'personal');
+          appendLaunchDiagnostic('store_hydrate_personal_items', `count=${withCount.length}`).catch(() => undefined);
         } else {
           const localItems = withCountDefaults(rawPersonalStored);
           const listId = await getOrCreateActiveListId(user.id);
+          if (runId !== _hydrateRun) return;
           set({ _activeListId: listId, items: localItems });
+          appendLaunchDiagnostic('store_hydrate_personal_local_only', `count=${localItems.length}`).catch(() => undefined);
         }
       }
 
@@ -271,25 +356,33 @@ export const useListStore = create<ListState>((set, get) => ({
         savePriceHistory(merged);
       }
 
+      if (runId !== _hydrateRun) return;
       set({ syncStatus: 'idle' });
+      set({ bootstrapped: true });
+      appendLaunchDiagnostic('store_hydrate_complete', `ctx=${get().activeContext} items=${get().items.length}`).catch(() => undefined);
     } catch {
+      if (runId !== _hydrateRun) return;
       set({ syncStatus: 'error' });
+      set({ bootstrapped: true });
+      appendLaunchDiagnostic('store_hydrate_failed').catch(() => undefined);
     }
   },
 
   // ── addItem ────────────────────────────────────────────────────────────────
   addItem: (data) => {
     const richHistory    = get().richPriceHistory;
-    const suggestedPrice = richHistory[data.name.toLowerCase()]?.lastPrice;
+    const normalizedName = data.name?.trim() || 'Untitled item';
+    const normalizedCategory = data.category?.trim() || 'Other';
+    const suggestedPrice = richHistory[normalizedName.toLowerCase()]?.lastPrice;
     // If user has previously overridden this item's category, honour that choice.
-    const learnedCategory = get().categoryOverrides[data.name.toLowerCase()];
+    const learnedCategory = get().categoryOverrides[normalizedName.toLowerCase()];
     const newItem: GroceryItem = {
       id:        String(++_nextId),
-      name:      data.name,
+      name:      normalizedName,
       qty:       data.qty || '1',
       count:     data.count ?? 1,
       price:     data.price ?? suggestedPrice ?? 0,
-      category:  learnedCategory ?? data.category ?? 'Other',
+      category:  learnedCategory ?? normalizedCategory,
       checked:   false,
       createdAt: Date.now(),
     };
@@ -416,41 +509,18 @@ export const useListStore = create<ListState>((set, get) => ({
   // ── clearList ──────────────────────────────────────────────────────────────
   clearList: () => {
     const currentItems = get().items;
-    const priceMap     = { ...get().lastItemPrice };
-    const total        = currentItems.reduce((s, i) => s + itemTotal(i), 0);
-    const richHistory  = buildRichHistory(get().richPriceHistory, currentItems);
-
-    for (const item of currentItems) {
-      if (item.price > 0) priceMap[item.name] = item.price;
-    }
-
-    set({
-      items: [], lastItemPrice: priceMap, priceHistoryHydrated: true,
-      hasCompletedFirstList: true, richPriceHistory: richHistory,
-    });
+    set({ items: [] });
     saveItems([], get().activeContext);
-    savePriceHistory(priceMap);
-    saveRichPriceHistory(richHistory);
-    setHasCompletedFirstList();
     persistWidgetData([]);
 
-    loadHistory().then(existing => {
-      saveHistory([
-        { id: Date.now().toString(), date: Date.now(), items: currentItems, total },
-        ...existing,
-      ]);
-    });
-
     const user        = useAuthStore.getState().user;
-    const activeList  = get()._activeListId;
-    const activeGroupId = get().activeContext === 'group' ? get().groupId : null;
-
-    if (user && activeList) {
-      completeActiveList(user.id, activeList, total, activeGroupId).then(newListId => {
-        set({ _activeListId: newListId });
-        // Group state persists — only list ID rotates
+    if (user) {
+      // Clear all currently visible remote items without creating a completed trip/history entry.
+      currentItems.forEach((item) => {
+        if (item.remoteId) {
+          remoteRemoveItem(item.remoteId);
+        }
       });
-      syncPriceHistory(user.id, priceMap);
     }
   },
 
@@ -506,7 +576,9 @@ export const useListStore = create<ListState>((set, get) => ({
     // Remember the user's choice — next time this item name is added,
     // it will default to the category the user set here.
     if (item) {
-      const overrides = { ...get().categoryOverrides, [item.name.toLowerCase()]: category };
+      const key = item.name?.trim().toLowerCase();
+      if (!key) return;
+      const overrides = { ...get().categoryOverrides, [key]: category };
       set({ categoryOverrides: overrides });
       saveCategoryOverrides(overrides);
     }
@@ -560,7 +632,7 @@ export const useListStore = create<ListState>((set, get) => ({
       }
 
       // Request notification permission + register token so members get notified
-      registerPushToken();
+      registerPushToken({ requestPermission: true });
 
       return 'ok';
     } catch (error) {
@@ -591,6 +663,7 @@ export const useListStore = create<ListState>((set, get) => ({
         inviteCode:    result.group.invite_code,
         groupMembers:  result.members,
         activeContext: 'group',
+        pendingInviteCode: null,
       });
       AsyncStorage.setItem(ACTIVE_CONTEXT_KEY, 'group');
 
@@ -603,7 +676,7 @@ export const useListStore = create<ListState>((set, get) => ({
       persistWidgetData(withCount);
 
       // Request notification permission + register token so owner gets notified
-      registerPushToken();
+      registerPushToken({ requestPermission: true });
 
       return 'ok';
     } catch {
@@ -625,8 +698,10 @@ export const useListStore = create<ListState>((set, get) => ({
       inviteCode:    null,
       groupMembers:  [],
       activeContext: 'personal',
+      pendingInviteCode: null,
     });
     AsyncStorage.setItem(ACTIVE_CONTEXT_KEY, 'personal');
+    saveItems([], 'group');
 
     // Restore the user's own personal list
     try {
@@ -647,6 +722,21 @@ export const useListStore = create<ListState>((set, get) => ({
   },
 
   // ── switchContext ──────────────────────────────────────────────────────────
+  removeGroupMember: async (targetUserId: string) => {
+    const groupId = get().groupId;
+    if (!groupId) return 'error';
+
+    try {
+      await apiRemoveGroupMember(groupId, targetUserId);
+      set({
+        groupMembers: get().groupMembers.filter(member => member.userId !== targetUserId),
+      });
+      return 'ok';
+    } catch {
+      return 'error';
+    }
+  },
+
   switchContext: async (ctx: 'personal' | 'group') => {
     const prevCtx   = get().activeContext;
     const prevItems = get().items;

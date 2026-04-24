@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useListStore } from '../../store/useListStore';
+import { useAuthStore } from '../../store/useAuthStore';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius } from '../../constants/spacing';
 import { IconClose, IconCheck, IconCamera, IconGallery } from '../ui/Icons';
@@ -27,6 +28,7 @@ import {
   getScanRemaining,
   RateLimitError,
   NotReceiptError,
+  AuthRequiredError,
 } from '../../services/ReceiptService';
 import { loadHistory, saveHistory } from '../../services/storage';
 import type { GroceryItem, ParsedItem, TripSummary } from '../../types';
@@ -48,6 +50,7 @@ interface Props {
 export function ScanModal({ visible, onClose }: Props) {
   const addItem = useListStore(s => s.addItem);
   const insets  = useSafeAreaInsets();
+  const user    = useAuthStore(s => s.user);
 
   const [scanState,    setScanState]    = useState<ScanState>('idle');
   const [sessionItems, setSessionItems] = useState<SessionItem[]>([]);
@@ -104,6 +107,12 @@ export function ScanModal({ visible, onClose }: Props) {
     setErrorMsg('');
     setSessionItems([]);
     setAddedCount(0);
+
+    if (!user) {
+      setScanState('error');
+      setErrorMsg('Sign in to use receipt scanning.');
+      return;
+    }
 
     // Request appropriate permission
     if (source === 'camera') {
@@ -164,6 +173,9 @@ export function ScanModal({ visible, onClose }: Props) {
         setScanState('error');
         setErrorMsg('Daily scan limit reached (10/day). Try again tomorrow.');
         setRemaining(0);
+      } else if (err instanceof AuthRequiredError) {
+        setScanState('error');
+        setErrorMsg('Sign in to use receipt scanning.');
       } else {
         setScanState('error');
         setErrorMsg(err instanceof Error ? err.message : "Couldn't read this receipt");

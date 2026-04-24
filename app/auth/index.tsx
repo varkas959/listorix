@@ -93,9 +93,13 @@ export default function OnboardingScreen() {
 
       if (result.type === 'success') {
         const url = result.url;
-        const code = new URL(url).searchParams.get('code');
+        const parsed = Linking.parse(url);
+        const codeParam = parsed.queryParams?.code;
+        const code = Array.isArray(codeParam) ? codeParam[0] : codeParam;
+        let establishedSession = false;
         if (code) {
           await supabase.auth.exchangeCodeForSession(code);
+          establishedSession = true;
         } else {
           const hash   = url.includes('#') ? url.split('#')[1] : '';
           const params = new URLSearchParams(hash);
@@ -103,8 +107,17 @@ export default function OnboardingScreen() {
           const refreshToken = params.get('refresh_token');
           if (accessToken && refreshToken) {
             await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+            establishedSession = true;
           }
         }
+
+        if (!establishedSession) {
+          throw new Error('Google auth callback did not include a session.');
+        }
+
+        router.replace('/(tabs)');
+      } else if (result.type !== 'cancel') {
+        throw new Error(`Google auth finished unexpectedly: ${result.type}`);
       }
     } catch (err) {
       console.error('[auth] Google error:', err);

@@ -38,6 +38,10 @@ interface DbList {
   items:        { category: string }[];
 }
 
+interface DbParticipantRow {
+  list_id: string;
+}
+
 interface DbListIdRow {
   id:         string;
   created_at?: string | null;
@@ -298,6 +302,17 @@ export async function completeActiveList(
   total: number,
   groupId?: string | null,
 ): Promise<string> {
+  if (groupId) {
+    const { error: snapshotError } = await supabase.rpc('snapshot_group_list_participants', {
+      p_list_id: listId,
+      p_group_id: groupId,
+    });
+
+    if (snapshotError) {
+      console.warn('[api] snapshot_group_list_participants:', snapshotError.message);
+    }
+  }
+
   await supabase
     .from('lists')
     .update({
@@ -360,23 +375,63 @@ export interface RemoteTrip {
 }
 
 export async function getTripHistory(userId: string): Promise<RemoteTrip[]> {
-  const { data, error } = await supabase
-    .from('lists')
-    .select('id, completed_at, total')
-    .eq('user_id', userId)
-    .not('completed_at', 'is', null)
-    .order('completed_at', { ascending: false })
-    .limit(50);
+  const [personalResult, participantResult] = await Promise.all([
+    supabase
+      .from('lists')
+      .select('id, completed_at, total')
+      .eq('user_id', userId)
+      .not('completed_at', 'is', null)
+      .order('completed_at', { ascending: false })
+      .limit(50),
+    supabase
+      .from('list_participants')
+      .select('list_id')
+      .eq('user_id', userId)
+      .order('snapshot_at', { ascending: false })
+      .limit(50)
+      .returns<DbParticipantRow[]>(),
+  ]);
 
-  if (error) { console.warn('[api] getTripHistory:', error.message); return []; }
+  if (personalResult.error) {
+    console.warn('[api] getTripHistory personal:', personalResult.error.message);
+  }
+  if (participantResult.error) {
+    console.warn('[api] getTripHistory participants:', participantResult.error.message);
+  }
 
-  return (data ?? []).map((row: { id: string; completed_at: string; total: number | null }) => ({
-    id:          row.id,
-    completedAt: new Date(row.completed_at).getTime(),
-    total:       row.total ?? 0,
-    itemCount:   0,    // not stored in lists table — local history has the real count
-    categories:  [],
-  }));
+  const participantIds = [...new Set((participantResult.data ?? []).map(row => row.list_id))];
+  const participantListsResult = participantIds.length > 0
+    ? await supabase
+        .from('lists')
+        .select('id, completed_at, total')
+        .in('id', participantIds)
+        .not('completed_at', 'is', null)
+    : { data: [], error: null as SupabaseLikeError };
+
+  if (participantListsResult.error) {
+    console.warn('[api] getTripHistory participant lists:', participantListsResult.error.message);
+  }
+
+  const allRows = [
+    ...(personalResult.data ?? []),
+    ...(participantListsResult.data ?? []),
+  ] as { id: string; completed_at: string; total: number | null }[];
+
+  const uniqueRows = new Map<string, { id: string; completed_at: string; total: number | null }>();
+  for (const row of allRows) {
+    uniqueRows.set(row.id, row);
+  }
+
+  return [...uniqueRows.values()]
+    .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
+    .slice(0, 50)
+    .map(row => ({
+      id:          row.id,
+      completedAt: new Date(row.completed_at).getTime(),
+      total:       row.total ?? 0,
+      itemCount:   0,
+      categories:  [],
+    }));
 }
 
 // ── Shared Lists (F5) ─────────────────────────────────────────────────────────
@@ -433,19 +488,21 @@ export async function notifyMembersOfNewItem(
   itemName: string,
 ): Promise<void> {
   try {
-    const SUPABASE_URL      = process.env.EXPO_PUBLIC_SUPABASE_URL      ?? '';
     const { data: { session } } = await supabase.auth.getSession();
-    const jwt = session?.access_token;
-    if (!jwt || !SUPABASE_URL) return;
+    const accessToken = session?.access_token;
+    const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+    if (!accessToken || !anonKey) return;
 
-    fetch(`${SUPABASE_URL}/functions/v1/notify-members`, {
-      method:  'POST',
+    const { error } = await supabase.functions.invoke('notify-members', {
       headers: {
-        Authorization:  `Bearer ${jwt}`,
-        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        apikey: anonKey,
       },
-      body: JSON.stringify({ list_id: listId, item_name: itemName }),
-    }).catch(() => {}); // truly fire-and-forget
+      body: { list_id: listId, item_name: itemName },
+    });
+    if (error) {
+      console.warn('[api] notifyMembersOfNewItem:', error.message);
+    }
   } catch { /* non-critical */ }
 }
 
@@ -461,6 +518,17 @@ interface DbGroup {
 export interface GroupWithMembers {
   group:   DbGroup;
   members: GroupMember[];
+}
+
+async function prepareHouseholdMembership(targetGroupId: string): Promise<void> {
+  const { error } = await supabase.rpc('prepare_household_membership', {
+    p_target_group_id: targetGroupId,
+  });
+
+  if (error) {
+    console.warn('[api] prepareHouseholdMembership:', error.message);
+    throw new Error('prepare_household_membership_failed');
+  }
 }
 
 function generateGroupCode(): string {
@@ -509,16 +577,13 @@ export async function createGroup(
     );
   }
 
-  // Stamp profiles.group_id for quick lookup. Upsert also repairs older accounts
-  // that were created before the profile trigger existed.
-  const { error: profileErr } = await supabase
-    .from('profiles')
-    .upsert({ id: userId, group_id: group.id }, { onConflict: 'id' });
-  if (profileErr) {
-    console.error('[api] createGroup profile UPSERT error:', formatSupabaseError(profileErr));
+  try {
+    await prepareHouseholdMembership(group.id);
+  } catch (error) {
+    console.error('[api] createGroup prepare membership error:', error);
     throw new HouseholdSetupError(
-      isHouseholdSchemaError(profileErr) ? 'schema_missing' : 'request_failed',
-      `Could not attach profile to group: ${formatSupabaseError(profileErr)}`
+      'request_failed',
+      'Could not normalize household membership for the new household.'
     );
   }
 
@@ -557,7 +622,7 @@ export async function joinGroup(
     throw new Error('member_insert_failed');
   }
 
-  await supabase.from('profiles').update({ group_id: group.id }).eq('id', userId);
+  await prepareHouseholdMembership(group.id);
 
   return getGroupWithMembers(userId);
 }
@@ -607,9 +672,29 @@ export async function getGroupWithMembers(
 
 /** Remove a user from a group and clear their profiles.group_id. */
 export async function leaveGroup(userId: string, groupId: string): Promise<void> {
-  await supabase.from('group_members').delete()
-    .eq('group_id', groupId).eq('user_id', userId);
-  await supabase.from('profiles').update({ group_id: null }).eq('id', userId);
+  const { error } = await supabase.rpc('leave_household', {
+    p_group_id: groupId,
+  });
+
+  if (error) {
+    console.warn('[api] leaveGroup:', error.message);
+    throw new Error('leave_group_failed');
+  }
+}
+
+export async function removeGroupMember(
+  groupId: string,
+  targetUserId: string,
+): Promise<void> {
+  const { error } = await supabase.rpc('remove_household_member', {
+    p_group_id: groupId,
+    p_target_user_id: targetUserId,
+  });
+
+  if (error) {
+    console.warn('[api] removeGroupMember:', error.message);
+    throw new Error('remove_group_member_failed');
+  }
 }
 
 /** Find the group's current active list ID without creating a new one. Returns null if not found. */
@@ -665,19 +750,26 @@ export async function notifyGroupMembers(
   itemId?: string | null,
 ): Promise<void> {
   try {
-    const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
     const { data: { session } } = await supabase.auth.getSession();
-    const jwt = session?.access_token;
-    if (!jwt || !SUPABASE_URL) return;
+    const accessToken = session?.access_token;
+    const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+    if (!accessToken || !anonKey) return;
 
-    fetch(`${SUPABASE_URL}/functions/v1/notify-members`, {
-      method:  'POST',
+    const { error } = await supabase.functions.invoke('notify-members', {
       headers: {
-        Authorization:  `Bearer ${jwt}`,
-        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        apikey: anonKey,
       },
-      body: JSON.stringify({ group_id: groupId, list_id: listId, item_name: itemName, item_id: itemId ?? null }),
-    }).catch(() => {}); // truly fire-and-forget
+      body: {
+        group_id: groupId,
+        list_id: listId,
+        item_name: itemName,
+        item_id: itemId ?? null,
+      },
+    });
+    if (error) {
+      console.warn('[api] notifyGroupMembers:', error.message);
+    }
   } catch { /* non-critical */ }
 }
 

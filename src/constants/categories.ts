@@ -315,13 +315,14 @@ const SORTED_KEYS = Object.keys(ITEM_EMOJI_MAP).sort((a, b) => b.length - a.leng
  * Returns the most specific emoji for an item.
  * Tries item-name keyword match first; falls back to category emoji.
  */
-export function getItemEmoji(name: string, category: string): string {
-  const lower = name.toLowerCase();
+export function getItemEmoji(name: string | null | undefined, category: string | null | undefined): string {
+  const safeName = typeof name === 'string' ? name : '';
+  const lower = safeName.toLowerCase();
   for (const keyword of SORTED_KEYS) {
     if (lower.includes(keyword)) {
       return ITEM_EMOJI_MAP[keyword];
     }
   }
 
-  return CATEGORY_EMOJI[category] ?? '🛒';
+  return CATEGORY_EMOJI[category ?? 'Other'] ?? '🛒';
 }

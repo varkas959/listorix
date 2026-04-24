@@ -37,6 +37,13 @@ export class RateLimitError extends Error {
   }
 }
 
+export class AuthRequiredError extends Error {
+  constructor(message = 'Sign in to use voice input.') {
+    super(message);
+    this.name = 'AuthRequiredError';
+  }
+}
+
 // ── Availability check ─────────────────────────────────────────────────────────
 
 export const VOICE_DAILY_LIMIT = 20;
@@ -145,7 +152,7 @@ export async function stopAndTranscribe(
   // Get user JWT for Edge Function auth
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) {
-    throw new Error('Sign in to use voice input.');
+    throw new AuthRequiredError();
   }
   const jwt = session.access_token;
 
@@ -187,6 +194,10 @@ export async function stopAndTranscribe(
       data.error ?? 'Daily voice limit reached',
       data.remaining ?? 0,
     );
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    throw new AuthRequiredError();
   }
 
   if (!res.ok) {

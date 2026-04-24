@@ -2,7 +2,7 @@
   "expo": {
     "name": "Listorix",
     "slug": "listorix",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,8 +22,11 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.listorix.app",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "usesAppleSignIn": true,
+      "associatedDomains": [
+        "applinks:listorix.com"
+      ],
       "infoPlist": {
         "UIDeviceFamily": [1],
         "NSSpeechRecognitionUsageDescription": "Allow Listorix to recognize your voice to add items to your list.",
@@ -35,7 +38,29 @@
     },
     "android": {
       "package": "com.listorix.app",
-      "versionCode": 3,
+      "versionCode": 4,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "https",
+              "host": "listorix.com",
+              "pathPrefix": "/join"
+            },
+            {
+              "scheme": "http",
+              "host": "listorix.com",
+              "pathPrefix": "/join"
+            }
+          ]
+        }
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#1AABA8",
         "foregroundImage": "./assets/android-icon-foreground.png",

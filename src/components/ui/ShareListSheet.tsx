@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput,
-  StyleSheet, Pressable, Share, ActivityIndicator, Animated, ScrollView,
-  Platform, KeyboardAvoidingView,
+  StyleSheet, Pressable, ActivityIndicator, Animated, ScrollView,
+  Platform, KeyboardAvoidingView, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -10,7 +10,7 @@ import { useListStore } from '../../store/useListStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius } from '../../constants/spacing';
-import { IconClose, IconUsers, IconShareArrow } from './Icons';
+import { IconClose, IconUsers } from './Icons';
 
 interface Props {
   visible: boolean;
@@ -23,17 +23,17 @@ export function ShareListSheet({ visible, onClose }: Props) {
   const { user } = useAuthStore();
 
   const groupId      = useListStore(s => s.groupId);
-  const groupName    = useListStore(s => s.groupName);
-  const inviteCode   = useListStore(s => s.inviteCode);
   const groupMembers = useListStore(s => s.groupMembers);
+  const pendingInviteCode = useListStore(s => s.pendingInviteCode);
+  const setPendingInviteCode = useListStore(s => s.setPendingInviteCode);
   const createGroup  = useListStore(s => s.createGroup);
   const joinGroup    = useListStore(s => s.joinGroup);
-  const leaveGroup   = useListStore(s => s.leaveGroup);
+  const removeGroupMember = useListStore(s => s.removeGroupMember);
 
   const [joinCode,    setJoinCode]    = useState('');
   const [joining,     setJoining]     = useState(false);
   const [creating,    setCreating]    = useState(false);
-  const [leaving,     setLeaving]     = useState(false);
+  const [removingUserId, setRemovingUserId] = useState<string | null>(null);
   const [joinError,   setJoinError]   = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -54,6 +54,12 @@ export function ShareListSheet({ visible, onClose }: Props) {
       if (closeTimer.current) clearTimeout(closeTimer.current);
     };
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible || groupId || !pendingInviteCode) return;
+    setJoinCode(pendingInviteCode);
+    setJoinError(null);
+  }, [visible, groupId, pendingInviteCode]);
 
   // Safe close: always calls onClose within 400ms even if animation stalls.
   // This prevents the invisible Modal from blocking all touches.
@@ -94,6 +100,7 @@ export function ShareListSheet({ visible, onClose }: Props) {
     setJoining(false);
     if (result === 'ok') {
       setJoinCode('');
+      setPendingInviteCode(null);
       animateClose(onClose);
     } else if (result === 'not_found') {
       setJoinError('Code not found — double-check and try again');
@@ -102,18 +109,32 @@ export function ShareListSheet({ visible, onClose }: Props) {
     }
   }
 
-  async function handleLeave() {
-    setLeaving(true);
-    await leaveGroup();
-    setLeaving(false);
-    animateClose(onClose);
-  }
+  const currentMember = groupMembers.find(member => member.userId === user?.id);
+  const isAdmin = currentMember?.role === 'admin';
 
-  async function handleShareCode() {
-    if (!inviteCode) return;
-    Share.share({
-      message: `Join my household grocery list on Listorix!\n\nOpen the app → Family → enter this code:\n\n${inviteCode}`,
-    });
+  function handleRemoveMember(member: typeof groupMembers[number]) {
+    Alert.alert(
+      `Remove ${member.displayName ?? 'member'}?`,
+      'They will lose access to the live household list right away. Their personal list stays intact, and past shared trips remain visible in history.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setRemovingUserId(member.userId);
+              const result = await removeGroupMember(member.userId);
+              if (result !== 'ok') {
+                Alert.alert('Could not remove member', 'Please try again in a moment.');
+              }
+            } finally {
+              setRemovingUserId(null);
+            }
+          },
+        },
+      ]
+    );
   }
 
   // Member avatar
@@ -198,61 +219,67 @@ export function ShareListSheet({ visible, onClose }: Props) {
   }
 
   // ─── Branch B: User is in a group ────────────────────────────────────────────
-  if (groupId && inviteCode) {
+  if (groupId) {
     return sheetInner(
-      <>
-        {/* Group name */}
-        <View style={styles.groupNameRow}>
-          <Text style={styles.groupNameLabel}>HOUSEHOLD</Text>
-          <Text style={styles.groupNameValue}>{groupName ?? 'My Household'}</Text>
-        </View>
-
-        {/* Invite code card */}
-        <View style={styles.codeCard}>
-          <Text style={styles.codeLabel}>Invite code — share this with family</Text>
-          <Text style={styles.codeValue}>{inviteCode}</Text>
-          <TouchableOpacity
-            style={styles.shareCodeBtn}
-            onPress={handleShareCode}
-            activeOpacity={0.85}
-          >
-            <IconShareArrow size={14} color="#fff" />
-            <Text style={styles.shareCodeBtnText}>Share invite code</Text>
-          </TouchableOpacity>
-        </View>
-
+      <View style={styles.groupSheetContent}>
+        <ScrollView
+          style={styles.groupScroll}
+          contentContainerStyle={styles.groupScrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
         {/* Member list */}
         {groupMembers.length > 0 && (
           <View style={styles.membersSection}>
+            <Text style={styles.sectionLabel}>MEMBERS</Text>
             <Text style={styles.membersLabel}>
               {groupMembers.length} {groupMembers.length === 1 ? 'member' : 'members'}
             </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.avatarRow}>
+            <ScrollView showsVerticalScrollIndicator={false} style={styles.membersList}>
               {groupMembers.map(m => (
-                <View key={m.userId} style={styles.avatarWrap}>
-                  <MemberAvatar displayName={m.displayName} />
-                  <Text style={styles.avatarName} numberOfLines={1}>
-                    {m.displayName ?? 'You'}
-                  </Text>
+                <View key={m.userId} style={styles.memberRow}>
+                  <View style={styles.memberMain}>
+                    <MemberAvatar displayName={m.displayName} />
+                    <View style={styles.memberMeta}>
+                      <Text style={styles.memberName} numberOfLines={1}>
+                        {m.userId === user.id ? 'You' : (m.displayName ?? 'Household member')}
+                      </Text>
+                      <Text style={styles.memberRole}>
+                        {m.role === 'admin' ? 'Admin' : 'Member'}
+                      </Text>
+                    </View>
+                  </View>
+                  {isAdmin && m.userId !== user.id ? (
+                    <TouchableOpacity
+                      style={[
+                        styles.removeMemberBtn,
+                        removingUserId === m.userId && { opacity: 0.6 },
+                      ]}
+                      onPress={() => handleRemoveMember(m)}
+                      disabled={removingUserId === m.userId}
+                      activeOpacity={0.7}
+                    >
+                      {removingUserId === m.userId ? (
+                        <ActivityIndicator size="small" color={Colors.danger} />
+                      ) : (
+                        <Text style={styles.removeMemberText}>Remove</Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.memberPill}>
+                      <Text style={styles.memberPillText}>
+                        {m.userId === user.id ? 'You' : m.role === 'admin' ? 'Admin' : 'Member'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               ))}
             </ScrollView>
           </View>
         )}
 
-        {/* Leave button */}
-        <TouchableOpacity
-          style={[styles.leaveBtn, leaving && { opacity: 0.6 }]}
-          onPress={handleLeave}
-          disabled={leaving}
-          activeOpacity={0.7}
-        >
-          {leaving
-            ? <ActivityIndicator size="small" color={Colors.danger} />
-            : <Text style={styles.leaveBtnText}>Leave household</Text>
-          }
-        </TouchableOpacity>
-      </>
+        </ScrollView>
+      </View>
     );
   }
 
@@ -289,6 +316,11 @@ export function ShareListSheet({ visible, onClose }: Props) {
 
       {/* Join by code */}
       <View style={styles.joinSection}>
+        {pendingInviteCode ? (
+          <Text style={styles.linkHint}>
+            Join link detected. Your family code is ready below.
+          </Text>
+        ) : null}
         <View style={styles.joinRow}>
           <TextInput
             style={[styles.joinInput, joinError ? styles.joinInputError : null]}
@@ -345,7 +377,7 @@ const styles = StyleSheet.create({
     width: 36, height: 4, borderRadius: 2,
     backgroundColor: Colors.border,
     alignSelf: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   closeBtn: {
     width: 30, height: 30, borderRadius: 15,
@@ -358,7 +390,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 14,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -412,21 +444,25 @@ const styles = StyleSheet.create({
   },
 
   // ── Group name ───────────────────────────────────────────────────────────────
-  groupNameRow: {
-    marginBottom: 16,
-    gap: 2,
+  groupSheetContent: {
+    maxHeight: 500,
+    minHeight: 260,
+    flexShrink: 1,
   },
-  groupNameLabel: {
-    fontSize: 10,
+  groupScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  groupScrollContent: {
+    paddingBottom: 10,
+    flexGrow: 1,
+  },
+  sectionLabel: {
+    fontSize: 11,
     fontWeight: '700',
     color: Colors.textTertiary,
-    letterSpacing: 1.2,
-  },
-  groupNameValue: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    letterSpacing: -0.4,
+    letterSpacing: 0.9,
+    textTransform: 'uppercase',
   },
 
   // ── Invite code card ─────────────────────────────────────────────────────────
@@ -435,22 +471,23 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.primary + '30',
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 20,
+    gap: 8,
+    marginBottom: 16,
   },
   codeLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: Colors.textSecondary,
-    fontWeight: '500',
+    fontWeight: '600',
+    textAlign: 'center',
   },
-  codeValue: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: Colors.primary,
-    letterSpacing: 6,
-    fontVariant: ['tabular-nums' as const],
+  codeHelper: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: Colors.textSecondary,
+    textAlign: 'center',
   },
   shareCodeBtn: {
     flexDirection: 'row',
@@ -458,8 +495,8 @@ const styles = StyleSheet.create({
     gap: 6,
     backgroundColor: Colors.primary,
     borderRadius: Radius.md,
-    paddingVertical: 11,
-    paddingHorizontal: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
     marginTop: 4,
   },
   shareCodeBtnText: {
@@ -470,21 +507,16 @@ const styles = StyleSheet.create({
 
   // ── Members ──────────────────────────────────────────────────────────────────
   membersSection: {
-    marginBottom: 20,
-    gap: 10,
+    marginBottom: 8,
+    gap: 8,
   },
   membersLabel: {
     fontSize: 12,
     fontWeight: '600',
     color: Colors.textSecondary,
   },
-  avatarRow: {
-    flexDirection: 'row',
-  },
-  avatarWrap: {
-    alignItems: 'center',
-    marginRight: 12,
-    gap: 4,
+  membersList: {
+    maxHeight: 210,
   },
   avatar: {
     width: 44,
@@ -501,32 +533,64 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.primary,
   },
-  avatarName: {
-    fontSize: 11,
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 9,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
+    gap: 12,
+  },
+  memberMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  memberMeta: {
+    flex: 1,
+    gap: 2,
+  },
+  memberName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  memberRole: {
+    fontSize: 12,
     color: Colors.textSecondary,
     fontWeight: '500',
-    maxWidth: 50,
-    textAlign: 'center',
   },
-
-  // ── Leave button ─────────────────────────────────────────────────────────────
-  leaveBtn: {
+  memberPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: Colors.bg,
+  },
+  memberPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  removeMemberBtn: {
+    minWidth: 78,
+    height: 34,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Colors.danger + '40',
+    backgroundColor: '#FFF5F5',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.danger + '50',
-    backgroundColor: Colors.surface,
-    height: 44,
+    paddingHorizontal: 12,
   },
-  leaveBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
+  removeMemberText: {
+    fontSize: 12,
+    fontWeight: '700',
     color: Colors.danger,
   },
 
+  // ── Leave button ─────────────────────────────────────────────────────────────
   // ── Create household card ────────────────────────────────────────────────────
   createCard: {
     backgroundColor: Colors.primarySubtle,
@@ -572,6 +636,12 @@ const styles = StyleSheet.create({
 
   // ── Join ─────────────────────────────────────────────────────────────────────
   joinSection: { gap: 8 },
+  linkHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
   joinRow: {
     flexDirection: 'row',
     gap: 10,

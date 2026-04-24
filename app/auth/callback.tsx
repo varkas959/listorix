@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
 import { supabase } from '../../src/services/supabase';
 import { Colors } from '../../src/constants/colors';
 
@@ -15,24 +14,51 @@ WebBrowser.maybeCompleteAuthSession();
  */
 export default function AuthCallback() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    code?: string | string[];
+    access_token?: string | string[];
+    refresh_token?: string | string[];
+  }>();
 
   useEffect(() => {
+    let cancelled = false;
+
     async function handleCallback() {
       try {
-        // Parse the URL for code or tokens
-        const url = await Linking.getInitialURL();
-        if (url) {
-          const code = new URL(url).searchParams.get('code');
-          if (code) {
-            await supabase.auth.exchangeCodeForSession(code);
-          }
+        const { data: { session: existingSession } } = await supabase.auth.getSession();
+        if (existingSession) {
+          if (!cancelled) router.replace('/(tabs)');
+          return;
+        }
+
+        const codeParam = params.code;
+        const accessTokenParam = params.access_token;
+        const refreshTokenParam = params.refresh_token;
+        const code = Array.isArray(codeParam) ? codeParam[0] : codeParam;
+        const accessToken = Array.isArray(accessTokenParam) ? accessTokenParam[0] : accessTokenParam;
+        const refreshToken = Array.isArray(refreshTokenParam) ? refreshTokenParam[0] : refreshTokenParam;
+
+        if (typeof code === 'string' && code.length > 0) {
+          await supabase.auth.exchangeCodeForSession(code);
+        } else if (
+          typeof accessToken === 'string' &&
+          typeof refreshToken === 'string' &&
+          accessToken.length > 0 &&
+          refreshToken.length > 0
+        ) {
+          await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
         }
       } catch (e) {
-        console.warn('[callback] URL parse error:', e);
+        console.warn('[callback] auth callback failed:', e);
       }
 
       // Check session regardless — Supabase may have auto-processed it
       const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+
       if (session) {
         router.replace('/(tabs)');
       } else {
@@ -41,7 +67,10 @@ export default function AuthCallback() {
     }
 
     handleCallback();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [params.access_token, params.code, params.refresh_token, router]);
 
   return (
     <View style={styles.screen}>

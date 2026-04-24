@@ -34,6 +34,8 @@ interface Props {
 
 export const ListItem = React.memo(function ListItem({ item, onToggle, isNew = false, isFirst = false }: Props) {
   const { currencySymbol } = useCurrencySettings();
+  const safeName = item.name?.trim() ? item.name : 'Untitled item';
+  const safeCategory = item.category?.trim() ? item.category : 'Other';
 
   // ── Slide-in for new items ────────────────────────────────────────────────
   const slideAnim = useRef(new Animated.Value(isNew ? 1 : 0)).current;
@@ -148,7 +150,7 @@ export const ListItem = React.memo(function ListItem({ item, onToggle, isNew = f
   const [sheetOpen,    setSheetOpen]    = useState(false);
   const [editPrice,    setEditPrice]    = useState('');
   const [editCount,    setEditCount]    = useState(1);
-  const [editCategory, setEditCategory] = useState(item.category);
+  const [editCategory, setEditCategory] = useState(safeCategory);
   const sheetAnim    = useRef(new Animated.Value(600)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
   const priceInputRef = useRef<TextInput>(null);
@@ -158,7 +160,7 @@ export const ListItem = React.memo(function ListItem({ item, onToggle, isNew = f
     // Populate edit state before showing
     setEditPrice(item.price > 0 ? String(item.price) : '');
     setEditCount(item.count ?? 1);
-    setEditCategory(item.category);
+    setEditCategory(safeCategory);
     // Reset position so the sheet always slides in from the bottom
     sheetAnim.setValue(500);
     backdropAnim.setValue(0);
@@ -217,7 +219,7 @@ export const ListItem = React.memo(function ListItem({ item, onToggle, isNew = f
     });
   }
 
-  const emoji = getItemEmoji(item.name, item.category);
+  const emoji = getItemEmoji(safeName, safeCategory);
 
   return (
     <View style={styles.swipeWrapper}>
@@ -276,7 +278,7 @@ export const ListItem = React.memo(function ListItem({ item, onToggle, isNew = f
                 style={[styles.name, item.checked && styles.nameChecked]}
                 numberOfLines={2}
               >
-                {item.name}
+                {safeName}
               </Text>
               <Animated.View
                 style={[styles.strikethrough, {
@@ -371,7 +373,7 @@ export const ListItem = React.memo(function ListItem({ item, onToggle, isNew = f
           >
             <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetAnim }] }]}>
               <View style={styles.sheetHandle} />
-              <Text style={[styles.sheetTitle, styles.sheetTitleStandalone]}>{item.name}</Text>
+              <Text style={[styles.sheetTitle, styles.sheetTitleStandalone]}>{safeName}</Text>
               <View style={styles.sheetDivider} />
 
               {/* Price */}
@@ -518,7 +520,6 @@ const styles = StyleSheet.create({
     right:           0,
     height:          1.5,
     backgroundColor: '#AEAEB2',
-    transformOrigin: 'left center',
   },
 
   // ── Inline price ──────────────────────────────────────────────────────────

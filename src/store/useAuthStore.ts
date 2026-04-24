@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import { registerPushToken } from '../services/NotificationService';
+import { useListStore } from './useListStore';
 
 interface AuthState {
   user:      User | null;
@@ -33,7 +34,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     supabase.auth.onAuthStateChange((_event, session) => {
       set({ session, user: session?.user ?? null });
       // Register push token silently on every sign-in (no-op if already registered)
-      if (session) registerPushToken();
+      if (session) {
+        registerPushToken({ requestPermission: false });
+      } else {
+        useListStore.getState().resetForSignedOut().catch(() => undefined);
+      }
     });
   },
 
@@ -59,6 +64,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   signOut: async () => {
     await supabase.auth.signOut();
+    await useListStore.getState().resetForSignedOut();
     set({ user: null, session: null });
   },
 

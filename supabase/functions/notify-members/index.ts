@@ -17,11 +17,55 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const SUPABASE_URL           = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const EXPO_PUSH_URL          = 'https://exp.host/--/api/v2/push/send';
+const PREVIEW_LIMIT          = 3;
 
 const cors = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'authorization, content-type',
 };
+
+interface DbItemPreviewRow {
+  id: string;
+  name: string;
+  checked: boolean;
+}
+
+function withoutNewlyAddedItem(
+  pendingItems: DbItemPreviewRow[],
+  itemName: string,
+  itemId?: string | null,
+): DbItemPreviewRow[] {
+  if (itemId) {
+    return pendingItems.filter((item) => item.id !== itemId);
+  }
+
+  let excluded = false;
+  return pendingItems.filter((item) => {
+    if (!excluded && item.name.trim().toLowerCase() === itemName.trim().toLowerCase()) {
+      excluded = true;
+      return false;
+    }
+    return true;
+  });
+}
+
+function buildPreviewBody(
+  actorName: string,
+  itemName: string,
+  pendingItems: DbItemPreviewRow[],
+  itemId?: string | null,
+): string {
+  const nextItems = withoutNewlyAddedItem(pendingItems, itemName, itemId);
+  const previewNames = nextItems.slice(0, PREVIEW_LIMIT).map((item) => item.name);
+  const remainingCount = Math.max(0, nextItems.length - previewNames.length);
+
+  if (previewNames.length === 0) {
+    return `${actorName} added ${itemName}.`;
+  }
+
+  const moreSuffix = remainingCount > 0 ? ` +${remainingCount} more` : '';
+  return `${actorName} added ${itemName}. Next: ${previewNames.join(', ')}${moreSuffix}`;
+}
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -113,23 +157,84 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ sent: 0 }), { headers: cors });
     }
 
+    let activeListId = list_id ?? null;
+    if (!activeListId && group_id) {
+      const { data: activeList } = await supabaseAdmin
+        .from('lists')
+        .select('id')
+        .eq('group_id', group_id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      activeListId = activeList?.id ?? null;
+    }
+
+    let pendingItems: DbItemPreviewRow[] = [];
+    if (activeListId) {
+      const { data: itemRows } = await supabaseAdmin
+        .from('items')
+        .select('id, name, checked')
+        .eq('list_id', activeListId)
+        .eq('checked', false)
+        .order('created_at', { ascending: true })
+        .returns<DbItemPreviewRow[]>();
+
+      pendingItems = itemRows ?? [];
+    }
+
+    const nextItems = withoutNewlyAddedItem(pendingItems, item_name, item_id);
+    const previewNames = nextItems.slice(0, PREVIEW_LIMIT).map((item) => item.name);
+    const remainingCount = Math.max(0, nextItems.length - previewNames.length);
+    const body = buildPreviewBody(actorName, item_name, pendingItems, item_id);
+
     // ── 5. Send Expo push notifications ─────────────────────────────────────
     const messages = tokens.map(to => ({
       to,
       title: '🛒 New item added',
-      body:  `${actorName} added "${item_name}" to the list`,
+      ['title']: 'Family list updated',
+      body,
       categoryId: 'family-list-update',
-      data:  { group_id, list_id, item_id },
+      data:  {
+        group_id,
+        list_id: activeListId ?? list_id ?? null,
+        item_id: item_id ?? null,
+        item_name,
+        preview_names: previewNames,
+        remaining_count: remainingCount,
+      },
       sound: 'default',
     }));
 
-    await fetch(EXPO_PUSH_URL, {
+    const expoResponse = await fetch(EXPO_PUSH_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body:    JSON.stringify(messages),
     });
 
-    return new Response(JSON.stringify({ sent: tokens.length }), { headers: cors });
+    const expoJson = await expoResponse.json().catch(() => null);
+    console.log('[notify-members] send attempt', JSON.stringify({
+      actor_id: actor.id,
+      group_id: group_id ?? null,
+      list_id: activeListId ?? list_id ?? null,
+      preview_names: previewNames,
+      remaining_count: remainingCount,
+      recipient_count: recipientIds.size,
+      token_count: tokens.length,
+      expo_status: expoResponse.status,
+      expo_response: expoJson,
+    }));
+
+    if (!expoResponse.ok) {
+      console.error('[notify-members] expo push failed', expoResponse.status, expoJson);
+      return new Response(JSON.stringify({ error: 'Expo push failed', details: expoJson }), {
+        status: 502,
+        headers: cors,
+      });
+    }
+
+    return new Response(JSON.stringify({ sent: tokens.length, tickets: expoJson }), { headers: cors });
 
   } catch (err) {
     console.error('[notify-members]', err);

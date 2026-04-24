@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useListStore } from '../../store/useListStore';
+import { useAuthStore } from '../../store/useAuthStore';
 import { Colors } from '../../constants/colors';
 import { Spacing, Radius } from '../../constants/spacing';
 import { IconMic, IconClose, IconCheck } from '../ui/Icons';
@@ -30,6 +31,7 @@ import {
   cancelRecording,
   getVoiceRemaining,
   RateLimitError,
+  AuthRequiredError,
 } from '../../services/SpeechService';
 import type { ParsedItem } from '../../types';
 
@@ -60,6 +62,7 @@ export function VoiceModal({ visible, onClose }: Props) {
   const addItem = useListStore(s => s.addItem);
   const items   = useListStore(s => s.items);
   const insets  = useSafeAreaInsets();
+  const user    = useAuthStore(s => s.user);
 
   const [voiceState,   setVoiceState]   = useState<VoiceState>('idle');
   const [langIndex,    setLangIndex]    = useState(0);
@@ -194,6 +197,12 @@ export function VoiceModal({ visible, onClose }: Props) {
     setTranscript('');
     setAddedCount(0);
 
+    if (!user) {
+      setVoiceState('error');
+      setErrorMsg('Sign in to use voice input.');
+      return;
+    }
+
     const granted = await requestMicPermission();
     if (!granted) {
       setVoiceState('error');
@@ -246,6 +255,9 @@ export function VoiceModal({ visible, onClose }: Props) {
         setVoiceState('error');
         setErrorMsg('Daily voice limit reached (20/day). Try again tomorrow.');
         setRemaining(0);
+      } else if (err instanceof AuthRequiredError) {
+        setVoiceState('error');
+        setErrorMsg(err.message);
       } else {
         setVoiceState('error');
         setErrorMsg(err instanceof Error ? err.message : "Didn't catch that");

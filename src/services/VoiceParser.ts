@@ -140,6 +140,7 @@ const ALIAS_MAP: Record<string, string> = {
   'anar': 'pomegranate', 'ananas': 'pineapple', 'amrud': 'guava',
   'chaas': 'buttermilk', 'makki': 'corn', 'sewai': 'vermicelli',
   'sevai': 'vermicelli', 'sabun': 'soap', 'surf': 'detergent',
+  'joota': 'shoes', 'jhoota': 'shoes', 'jhootha': 'shoes',
 
   // ── Telugu ───────────────────────────────────────────────────────────────
   'chakkera': 'sugar', 'chakera': 'sugar', 'chekkera': 'sugar', 'pindi': 'flour', 'nune': 'oil', 'uppu': 'salt',
@@ -270,9 +271,9 @@ export function extractQuantity(text: string): QuantityResult {
 // Removes stray numbers/units left in the rest string, capitalises.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function extractItemName(rest: string): string {
+export function extractItemName(rest: string, parsedUnit = ''): string {
   const cleaned = rest
-    .replace(new RegExp(`\\b(${UNITS_RE})\\b`, 'gi'), '')  // remove leftover units
+    .replace(parsedUnit ? new RegExp(`\\b(${UNITS_RE})\\b`, 'gi') : /^$/, '')  // remove leftover units only after explicit unit parsing
     .replace(/\b\d+(?:\.\d+)?\b/g, '')                    // remove leftover numbers
     .replace(/\s+/g, ' ')
     .trim();
@@ -484,7 +485,7 @@ export function parseItemText(raw: string): ParsedItem | null {
   if (!raw.trim()) return null;
   const aliased           = mapAlias(raw.trim());
   const { quantity, unit, rest } = extractQuantity(aliased);
-  const name              = extractItemName(rest);
+  const name              = extractItemName(rest, unit);
   if (!name || name.length < 2) return null;
   return { name, qty: formatQty(quantity, unit), category: detectCategory(name) };
 }

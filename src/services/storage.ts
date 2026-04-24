@@ -18,10 +18,26 @@ const KEYS = {
   language:            'listorix:language',
   currency:            'listorix:currency',
   notifications:       'listorix:notifications',
+  notificationPrefs:   'listorix:notificationPrefs',
   localBudget:         'listorix:localBudget',
   deletedTripIds:      'listorix:deletedTripIds',
   categoryOverrides:   'listorix:categoryOverrides',
+  fabHintSeen:         'listorix:fabHintSeen',
 } as const;
+
+export interface NotificationReminderPrefs {
+  enabled: boolean;
+  weekday: number; // 1 = Sunday ... 7 = Saturday
+  hour: number;    // 0-23
+  minute: number;  // 0-59
+}
+
+const DEFAULT_NOTIFICATION_PREFS: NotificationReminderPrefs = {
+  enabled: true,
+  weekday: 7,
+  hour: 10,
+  minute: 0,
+};
 
 export type ItemsContext = 'personal' | 'group';
 
@@ -147,6 +163,35 @@ export async function getNotificationsEnabled(): Promise<boolean> {
 }
 export async function setNotificationsEnabled(v: boolean): Promise<void> {
   await AsyncStorage.setItem(KEYS.notifications, v ? 'true' : 'false');
+}
+
+export async function getNotificationReminderPrefs(): Promise<NotificationReminderPrefs> {
+  try {
+    const raw = await AsyncStorage.getItem(KEYS.notificationPrefs);
+    if (!raw) return DEFAULT_NOTIFICATION_PREFS;
+    const parsed = JSON.parse(raw) as Partial<NotificationReminderPrefs>;
+    return {
+      enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : DEFAULT_NOTIFICATION_PREFS.enabled,
+      weekday: typeof parsed.weekday === 'number' ? parsed.weekday : DEFAULT_NOTIFICATION_PREFS.weekday,
+      hour: typeof parsed.hour === 'number' ? parsed.hour : DEFAULT_NOTIFICATION_PREFS.hour,
+      minute: typeof parsed.minute === 'number' ? parsed.minute : DEFAULT_NOTIFICATION_PREFS.minute,
+    };
+  } catch {
+    return DEFAULT_NOTIFICATION_PREFS;
+  }
+}
+
+export async function setNotificationReminderPrefs(value: NotificationReminderPrefs): Promise<void> {
+  await AsyncStorage.setItem(KEYS.notificationPrefs, JSON.stringify(value));
+}
+
+export async function getFabHintSeen(): Promise<boolean> {
+  try { return (await AsyncStorage.getItem(KEYS.fabHintSeen)) === 'true'; }
+  catch { return false; }
+}
+
+export async function setFabHintSeen(): Promise<void> {
+  await AsyncStorage.setItem(KEYS.fabHintSeen, 'true');
 }
 
 // ── Local budget (for non-signed-in users) ────────────────────────────────────

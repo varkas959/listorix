@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { Tabs } from 'expo-router';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CurvedTabBar } from '../../src/components/ui/CurvedTabBar';
 import { FAB, FABHandle } from '../../src/components/ui/FAB';
 import { fabEvents } from '../../src/utils/fabEvents';
@@ -48,51 +47,69 @@ const TABS = [
 ];
 
 export default function TabLayout() {
+  const screenOpacity = useRef(new Animated.Value(0)).current;
   const [voiceModalVisible, setVoiceModalVisible]     = useState(false);
   const [scanModalVisible, setScanModalVisible]       = useState(false);
   const [addItemsModalVisible, setAddItemsModalVisible] = useState(false);
   const fabRef = useRef<FABHandle>(null);
 
   useEffect(() => {
-    fabEvents.setListener(() => fabRef.current?.open());
-    return () => fabEvents.removeListener();
+    fabEvents.setFabListener(() => fabRef.current?.open());
+    fabEvents.setManualListener(() => setAddItemsModalVisible(true));
+    return () => {
+      fabEvents.removeFabListener();
+      fabEvents.removeManualListener();
+    };
   }, []);
 
+  useEffect(() => {
+    Animated.timing(screenOpacity, {
+      toValue: 1,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [screenOpacity]);
+
   return (
-    <SafeAreaProvider>
-      <View style={StyleSheet.absoluteFill}>
-        <Tabs
-          tabBar={(props) => (
-            <CurvedTabBar {...props} tabs={TABS} onFabPress={() => {}} />
-          )}
-          screenOptions={{ headerShown: false }}
-        >
-          <Tabs.Screen name="index"    options={{ title: 'List'     }} />
-          <Tabs.Screen name="history"  options={{ title: 'History'  }} />
-          <Tabs.Screen name="insights" options={{ title: 'Insights' }} />
-          <Tabs.Screen name="profile"  options={{ title: 'Profile'  }} />
-        </Tabs>
+    <Animated.View style={[StyleSheet.absoluteFill, { opacity: screenOpacity }]}>
+      <Tabs
+        tabBar={(props) => (
+          <CurvedTabBar {...props} tabs={TABS} />
+        )}
+        screenOptions={{ headerShown: false }}
+      >
+        <Tabs.Screen name="index"    options={{ title: 'List' }} />
+        <Tabs.Screen name="history"  options={{ title: 'History' }} />
+        <Tabs.Screen name="insights" options={{ title: 'Insights' }} />
+        <Tabs.Screen name="profile"  options={{ title: 'Profile' }} />
+      </Tabs>
 
-        <FAB
-          ref={fabRef}
-          onVoice={()  => setVoiceModalVisible(true)}
-          onManual={() => setAddItemsModalVisible(true)}
-          onScan={()   => setScanModalVisible(true)}
-        />
+      <FAB
+        ref={fabRef}
+        onVoice={()  => setVoiceModalVisible(true)}
+        onManual={() => setAddItemsModalVisible(true)}
+        onScan={()   => setScanModalVisible(true)}
+      />
 
+      {voiceModalVisible && (
         <VoiceModal
           visible={voiceModalVisible}
           onClose={() => setVoiceModalVisible(false)}
         />
+      )}
+      {scanModalVisible && (
         <ScanModal
           visible={scanModalVisible}
           onClose={() => setScanModalVisible(false)}
         />
+      )}
+      {addItemsModalVisible && (
         <AddItemsModal
           visible={addItemsModalVisible}
           onClose={() => setAddItemsModalVisible(false)}
         />
-      </View>
-    </SafeAreaProvider>
+      )}
+    </Animated.View>
   );
 }

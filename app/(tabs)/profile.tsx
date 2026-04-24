@@ -12,7 +12,6 @@ import {
   TextInput,
   Platform,
   KeyboardAvoidingView,
-  Switch,
   Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,8 +26,10 @@ import {
   loadHistory,
   getStorePreference, setStorePreference,
   getNotificationsEnabled, setNotificationsEnabled,
+  getNotificationReminderPrefs, setNotificationReminderPrefs,
   getLocalBudget, setLocalBudget,
   clearAllLocalData,
+  type NotificationReminderPrefs,
 } from '../../src/services/storage';
 import { getTranslations } from '../../src/i18n';
 import { supabase } from '../../src/services/supabase';
@@ -44,9 +45,14 @@ import {
   scheduleWeeklyReminder,
   cancelWeeklyReminder,
   areNotificationsPermitted,
+  formatWeeklyReminderLabel,
 } from '../../src/services/NotificationService';
 import type { Profile } from '../../src/types';
-import { formatAmount, useCurrencySettings } from '../../src/utils/currency';
+import {
+  formatAmount,
+  saveCurrencyPreference,
+  useCurrencySettings,
+} from '../../src/utils/currency';
 
 const STORE_OPTIONS = [
   { key: 'local',       label: 'Local store',  sub: 'Neighbourhood shop, market, etc.' },
@@ -55,13 +61,32 @@ const STORE_OPTIONS = [
 ];
 
 const SUPPORT_EMAIL = 'support@listorix.com';
+const CURRENCY_OPTIONS = [
+  { code: 'INR', label: 'Indian Rupee', symbol: '\u20B9' },
+  { code: 'USD', label: 'US Dollar', symbol: '$' },
+  { code: 'GBP', label: 'British Pound', symbol: '\u00A3' },
+  { code: 'EUR', label: 'Euro', symbol: '\u20AC' },
+  { code: 'AED', label: 'UAE Dirham', symbol: '\u062F.\u0625' },
+  { code: 'CAD', label: 'Canadian Dollar', symbol: 'CA$' },
+  { code: 'AUD', label: 'Australian Dollar', symbol: 'A$' },
+  { code: 'SGD', label: 'Singapore Dollar', symbol: 'S$' },
+] as const;
+
+const WEEKDAY_OPTIONS = [
+  { value: 1, label: 'Sun' },
+  { value: 2, label: 'Mon' },
+  { value: 3, label: 'Tue' },
+  { value: 4, label: 'Wed' },
+  { value: 5, label: 'Thu' },
+  { value: 6, label: 'Fri' },
+  { value: 7, label: 'Sat' },
+] as const;
 
 function openSupportEmail(subject: string, body?: string) {
   const mailto = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}${body ? `&body=${encodeURIComponent(body)}` : ''}`;
   Linking.openURL(mailto).catch(() => undefined);
 }
 
-// ── Budget input modal ────────────────────────────────────────────────────────
 function BudgetModal({
   visible,
   current,
@@ -117,7 +142,286 @@ function BudgetModal({
   );
 }
 
-// ── Feedback modal ────────────────────────────────────────────────────────────
+function CurrencyModal({
+  visible,
+  currentCode,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  currentCode: string;
+  onClose: () => void;
+  onSelect: (code: string) => Promise<unknown>;
+}) {
+  const [savingCode, setSavingCode] = useState<string | null>(null);
+
+  async function handleSelect(code: string) {
+    if (savingCode || code === currentCode) {
+      onClose();
+      return;
+    }
+    setSavingCode(code);
+    try {
+      await onSelect(code);
+      onClose();
+    } finally {
+      setSavingCode(null);
+    }
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Currency</Text>
+          <Text style={styles.currencyModalSubtext}>
+            Choose the currency Listorix should use across the app.
+          </Text>
+
+          <View style={styles.currencyList}>
+            {CURRENCY_OPTIONS.map((option) => {
+              const active = option.code === currentCode;
+              const saving = savingCode === option.code;
+              return (
+                <TouchableOpacity
+                  key={option.code}
+                  style={[styles.currencyRow, active && styles.currencyRowActive]}
+                  onPress={() => handleSelect(option.code)}
+                  activeOpacity={0.8}
+                  disabled={Boolean(savingCode)}
+                >
+                  <View style={styles.currencyRowLeft}>
+                    <Text style={styles.currencySymbol}>{option.symbol}</Text>
+                    <View style={styles.currencyCopy}>
+                      <Text style={styles.currencyName}>{option.label}</Text>
+                      <Text style={styles.currencyCodeText}>{option.code}</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.currencyCheck, active && styles.currencyCheckActive]}>
+                    {saving ? '...' : active ? '\u2713' : ''}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function NotificationSettingsModal({
+  visible,
+  initialPrefs,
+  permissionGranted,
+  onClose,
+  onSave,
+}: {
+  visible: boolean;
+  initialPrefs: NotificationReminderPrefs;
+  permissionGranted: boolean;
+  onClose: () => void;
+  onSave: (prefs: NotificationReminderPrefs) => Promise<void>;
+}) {
+  const [prefs, setPrefs] = useState<NotificationReminderPrefs>(initialPrefs);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setPrefs(initialPrefs);
+    }
+  }, [initialPrefs, visible]);
+
+  const isPm = prefs.hour >= 12;
+  const displayHour = (() => {
+    const hour12 = prefs.hour % 12;
+    return String(hour12 === 0 ? 12 : hour12);
+  })();
+  const displayMinute = String(prefs.minute).padStart(2, '0');
+
+  function setHourText(value: string) {
+    const parsed = parseInt(value.replace(/[^0-9]/g, ''), 10);
+    if (Number.isNaN(parsed)) {
+      setPrefs(current => ({ ...current, hour: isPm ? 12 : 0 }));
+      return;
+    }
+    const clampedHour = Math.min(12, Math.max(1, parsed));
+    const next24 = isPm
+      ? (clampedHour === 12 ? 12 : clampedHour + 12)
+      : (clampedHour === 12 ? 0 : clampedHour);
+    setPrefs(current => ({ ...current, hour: next24 }));
+  }
+
+  function setMinuteText(value: string) {
+    const parsed = parseInt(value.replace(/[^0-9]/g, ''), 10);
+    if (Number.isNaN(parsed)) {
+      setPrefs(current => ({ ...current, minute: 0 }));
+      return;
+    }
+    setPrefs(current => ({ ...current, minute: Math.min(59, Math.max(0, parsed)) }));
+  }
+
+  function setMeridiem(nextIsPm: boolean) {
+    setPrefs(current => {
+      let nextHour = current.hour;
+      if (nextIsPm && current.hour < 12) nextHour = current.hour + 12;
+      if (!nextIsPm && current.hour >= 12) nextHour = current.hour - 12;
+      return { ...current, hour: nextHour };
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await onSave(prefs);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={styles.modalOverlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Notifications</Text>
+          <Text style={styles.notificationModalSubtext}>
+            Pick when Listorix should remind you to plan your list.
+          </Text>
+
+          <View style={styles.notificationToggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.notificationToggleTitle}>Weekly reminder</Text>
+              <Text style={styles.notificationToggleHint}>
+                {prefs.enabled
+                  ? formatWeeklyReminderLabel(prefs)
+                  : 'Turn this on to get a weekly planning reminder.'}
+              </Text>
+            </View>
+            <Pressable
+              style={[styles.notificationEnabledPill, prefs.enabled && styles.notificationEnabledPillActive]}
+              onPress={() => setPrefs(current => ({ ...current, enabled: !current.enabled }))}
+            >
+              <Text
+                style={[
+                  styles.notificationEnabledPillText,
+                  prefs.enabled && styles.notificationEnabledPillTextActive,
+                ]}
+              >
+                {prefs.enabled ? 'On' : 'Off'}
+              </Text>
+            </Pressable>
+          </View>
+
+          {prefs.enabled && (
+            <>
+              <View style={styles.notificationField}>
+                <Text style={styles.notificationFieldLabel}>Day</Text>
+                <View style={styles.notificationDayWrap}>
+                  {WEEKDAY_OPTIONS.map((day) => {
+                    const active = prefs.weekday === day.value;
+                    return (
+                      <Pressable
+                        key={day.value}
+                        style={[styles.notificationDayChip, active && styles.notificationDayChipActive]}
+                        onPress={() => setPrefs(current => ({ ...current, weekday: day.value }))}
+                      >
+                        <Text
+                          style={[
+                            styles.notificationDayChipText,
+                            active && styles.notificationDayChipTextActive,
+                          ]}
+                        >
+                          {day.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.notificationField}>
+                <Text style={styles.notificationFieldLabel}>Time</Text>
+                <View style={styles.notificationTimeRow}>
+                  <View style={styles.notificationTimeInputWrap}>
+                    <TextInput
+                      style={styles.notificationTimeInput}
+                      value={displayHour}
+                      onChangeText={setHourText}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                    />
+                    <Text style={styles.notificationTimeDivider}>:</Text>
+                    <TextInput
+                      style={styles.notificationTimeInput}
+                      value={displayMinute}
+                      onChangeText={setMinuteText}
+                      keyboardType="number-pad"
+                      maxLength={2}
+                    />
+                  </View>
+
+                  <View style={styles.notificationMeridiemWrap}>
+                    <Pressable
+                      style={[styles.notificationMeridiemButton, !isPm && styles.notificationMeridiemButtonActive]}
+                      onPress={() => setMeridiem(false)}
+                    >
+                      <Text
+                        style={[
+                          styles.notificationMeridiemText,
+                          !isPm && styles.notificationMeridiemTextActive,
+                        ]}
+                      >
+                        AM
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.notificationMeridiemButton, isPm && styles.notificationMeridiemButtonActive]}
+                      onPress={() => setMeridiem(true)}
+                    >
+                      <Text
+                        style={[
+                          styles.notificationMeridiemText,
+                          isPm && styles.notificationMeridiemTextActive,
+                        ]}
+                      >
+                        PM
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+            </>
+          )}
+
+          {!permissionGranted && prefs.enabled && (
+            <Text style={styles.notificationPermissionHint}>
+              Notifications are currently blocked at the device level. We'll ask for permission when you save.
+            </Text>
+          )}
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={styles.modalCancel} onPress={onClose} disabled={saving}>
+              <Text style={styles.modalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalSave, saving && styles.modalSaveDisabled]}
+              onPress={handleSave}
+              disabled={saving}
+            >
+              <Text style={styles.modalSaveText}>{saving ? 'Saving...' : 'Save'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 function FeedbackModal({
   visible,
   userId,
@@ -181,7 +485,7 @@ function FeedbackModal({
           <View style={styles.starsRow}>
             {[1,2,3,4,5].map(star => (
               <TouchableOpacity key={star} onPress={() => setRating(star)} activeOpacity={0.7}>
-                <Text style={[styles.star, star <= rating && styles.starFilled]}>★</Text>
+                <Text style={[styles.star, star <= rating && styles.starFilled]}>{'\u2605'}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -191,7 +495,7 @@ function FeedbackModal({
             style={styles.feedbackInput}
             value={message}
             onChangeText={setMessage}
-            placeholder="Tell us what you think or report an issue…"
+            placeholder="Tell us what you think or report an issue..."
             placeholderTextColor={Colors.textTertiary}
             multiline
             numberOfLines={4}
@@ -209,7 +513,7 @@ function FeedbackModal({
               onPress={handleSubmit}
               disabled={submitting}
             >
-              <Text style={styles.modalSaveText}>{submitting ? 'Sending…' : 'Submit'}</Text>
+              <Text style={styles.modalSaveText}>{submitting ? 'Sending...' : 'Submit'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -218,7 +522,6 @@ function FeedbackModal({
   );
 }
 
-// ── Main screen ───────────────────────────────────────────────────────────────
 function statusMeta(status: FeatureIdeaStatus): { label: string; toneStyle: object; textStyle: object } {
   switch (status) {
     case 'planned':
@@ -486,6 +789,15 @@ export default function ProfileScreen() {
 
   const [profile,         setProfile]         = useState<Profile | null>(null);
   const [notifEnabled,    setNotifEnabled]     = useState(true);
+  const [notifPermitted,  setNotifPermitted]   = useState(true);
+  const [notificationPrefs, setNotificationPrefsState] = useState<NotificationReminderPrefs>({
+    enabled: true,
+    weekday: 7,
+    hour: 10,
+    minute: 0,
+  });
+  const [currencyModal, setCurrencyModal] = useState(false);
+  const [notificationModal, setNotificationModal] = useState(false);
   const [localBudget,     setLocalBudgetState] = useState<number | null>(null);
   const [budgetModal,     setBudgetModal]      = useState(false);
   const [budgetDraft,     setBudgetDraft]      = useState('');
@@ -503,17 +815,21 @@ export default function ProfileScreen() {
     );
   }
 
-  // ── Load all preferences ──────────────────────────────────────────────────
   async function loadPrefs() {
-    const [notif, bud, permitted] = await Promise.all([
+    const [notif, bud, permitted, reminderPrefs] = await Promise.all([
       getNotificationsEnabled(),
       getLocalBudget(),
       areNotificationsPermitted(),
+      getNotificationReminderPrefs(),
     ]);
-    // If OS permission was revoked externally, reflect that in the toggle
-    const effectiveNotif = notif && permitted;
+    const effectiveNotif = notif && permitted && reminderPrefs.enabled;
     if (notif && !permitted) await setNotificationsEnabled(false);
+    setNotifPermitted(permitted);
     setNotifEnabled(effectiveNotif);
+    setNotificationPrefsState({
+      ...reminderPrefs,
+      enabled: effectiveNotif,
+    });
     setLocalBudgetState(bud);
 
     if (user) {
@@ -527,25 +843,23 @@ export default function ProfileScreen() {
   useEffect(() => { loadPrefs(); }, [user]);
   useFocusEffect(useCallback(() => { loadPrefs(); }, [user]));
 
-  // ── Derived display values ────────────────────────────────────────────────
-  const displayName  = profile?.displayName ?? user?.email?.split('@')[0] ?? '—';
-  // Avatar: prefer first letter of email so it's always stable across name changes
+  const displayName  = profile?.displayName ?? user?.email?.split('@')[0] ?? '-';
   const avatarLetter = user ? (user.email?.[0] ?? displayName[0] ?? '?').toUpperCase() : '?';
-  // Pick a colour from a fixed palette — same letter always gets same colour
   const AVATAR_PALETTE = [
     '#2F80ED','#27AE60','#9B59B6','#E67E22',
     '#16A085','#E91E8C','#C2884B','#E74C3C',
   ];
   const avatarColor = AVATAR_PALETTE[avatarLetter.charCodeAt(0) % AVATAR_PALETTE.length];
-  // Detect Google provider
   const isGoogle = user?.app_metadata?.provider === 'google';
   const effectiveBudget = profile?.budget ?? localBudget;
   const budgetLabel  = effectiveBudget != null ? `${currencySymbol}${formatAmount(effectiveBudget)}` : t.notSet;
   const storeLabel   = profile?.storePreference
     ?? (await_getStore())
     ?? t.notSet;
+  const notificationLabel = notifEnabled
+    ? formatWeeklyReminderLabel(notificationPrefs)
+    : 'Off';
 
-  // sync store label from AsyncStorage for non-supabase path
   const [storeVal, setStoreVal] = useState<string>(t.notSet);
   useEffect(() => {
     getStorePreference().then(s => {
@@ -560,7 +874,6 @@ export default function ProfileScreen() {
   }, [profile]);
 
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
 
   function handleStore() {
     Alert.alert(
@@ -568,7 +881,7 @@ export default function ProfileScreen() {
       undefined,
       [
         ...STORE_OPTIONS.map(opt => ({
-          text: `${opt.label}  —  ${opt.sub}`,
+          text: `${opt.label} - ${opt.sub}`,
           onPress: async () => {
             await setStorePreference(opt.key);
             setStoreVal(opt.label);
@@ -583,6 +896,10 @@ export default function ProfileScreen() {
   function handleBudget() {
     setBudgetDraft(effectiveBudget != null ? String(effectiveBudget) : '');
     setBudgetModal(true);
+  }
+
+  function handleCurrency() {
+    setCurrencyModal(true);
   }
 
   async function saveBudget(raw: string) {
@@ -601,7 +918,6 @@ export default function ProfileScreen() {
         return;
       }
 
-      // Build CSV
       const header = `Date,Items,Total (${currencyCode})\n`;
       const rows = trips.map(trip => {
         const date = new Date(trip.date).toLocaleDateString(locale, {
@@ -639,33 +955,39 @@ export default function ProfileScreen() {
     );
   }
 
-  async function handleNotifications() {
-    const next = !notifEnabled;
+  function handleNotifications() {
+    setNotificationModal(true);
+  }
 
-    if (next) {
-      // Turning ON — request permission first
-      const granted = await requestNotificationPermission();
+  async function saveNotificationSettings(nextPrefs: NotificationReminderPrefs) {
+    if (nextPrefs.enabled) {
+      const granted = notifPermitted || await requestNotificationPermission();
       if (!granted) {
         Alert.alert(
           'Permission Required',
-          'Please enable notifications in Settings → Listorix → Notifications.',
+          'Please enable notifications in Settings > Listorix > Notifications.',
           [{ text: 'OK' }],
         );
-        return; // Keep toggle off
+        return;
       }
-      await scheduleWeeklyReminder();
+      await scheduleWeeklyReminder(nextPrefs);
       await setNotificationsEnabled(true);
+      await setNotificationReminderPrefs({ ...nextPrefs, enabled: true });
+      setNotifPermitted(true);
       setNotifEnabled(true);
+      setNotificationPrefsState({ ...nextPrefs, enabled: true });
       Alert.alert(
-        '🔔 Reminders on',
-        'You\'ll get a reminder every Saturday at 10 AM to plan your grocery list.',
+        'Reminder updated',
+        `You'll get a reminder every ${formatWeeklyReminderLabel(nextPrefs)}.`,
       );
-    } else {
-      // Turning OFF — cancel scheduled notifications
-      await cancelWeeklyReminder();
-      await setNotificationsEnabled(false);
-      setNotifEnabled(false);
+      return;
     }
+
+    await cancelWeeklyReminder();
+    await setNotificationsEnabled(false);
+    await setNotificationReminderPrefs({ ...nextPrefs, enabled: false });
+    setNotifEnabled(false);
+    setNotificationPrefsState({ ...nextPrefs, enabled: false });
   }
 
   async function handleDeleteAccount() {
@@ -688,7 +1010,6 @@ export default function ProfileScreen() {
                   style: 'destructive',
                   onPress: async () => {
                     try {
-                      // Delete all user data then the account via Supabase function
                       const { error } = await supabase.rpc('delete_user');
                       if (error) throw error;
                       await clearAllLocalData();
@@ -727,20 +1048,18 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             await signOut();
-            // No explicit navigation — route guard handles state change.
-            // User stays on profile tab which re-renders with signed-out view.
           },
         },
       ],
     );
   }
 
-  // ── Menu sections ─────────────────────────────────────────────────────────
   const SECTIONS = [
     {
       title: t.preferences,
       items: [
         { label: t.defaultStore,  value: storeVal,    onPress: handleStore,  arrow: true },
+        { label: t.currency,      value: `${currencySymbol} ${currencyCode}`, onPress: handleCurrency, arrow: true },
         { label: t.monthlyBudget, value: budgetLabel, onPress: handleBudget, arrow: true },
       ],
     },
@@ -755,10 +1074,9 @@ export default function ProfileScreen() {
       items: [
         {
           label: t.notifications,
-          value: '',
+          value: notificationLabel,
           onPress: handleNotifications,
-          toggle: true,
-          toggleValue: notifEnabled,
+          arrow: true,
         },
         { label: t.version, value: '1.0.0', onPress: undefined, arrow: false },
         ...(user
@@ -820,6 +1138,19 @@ export default function ProfileScreen() {
         onSave={saveBudget}
         onClose={() => setBudgetModal(false)}
         label={t.monthlyBudget}
+      />
+      <CurrencyModal
+        visible={currencyModal}
+        currentCode={currencyCode}
+        onClose={() => setCurrencyModal(false)}
+        onSelect={saveCurrencyPreference}
+      />
+      <NotificationSettingsModal
+        visible={notificationModal}
+        initialPrefs={notificationPrefs}
+        permissionGranted={notifPermitted}
+        onClose={() => setNotificationModal(false)}
+        onSave={saveNotificationSettings}
       />
       <FeedbackModal
         visible={feedbackModal}
@@ -891,40 +1222,42 @@ export default function ProfileScreen() {
                   onPress={item.onPress}
                   disabled={!item.onPress}
                 >
-                  <Text style={[styles.menuLabel, (item as any).danger && styles.menuLabelDanger]}>
+                  <Text
+                    style={[styles.menuLabel, (item as any).danger && styles.menuLabelDanger]}
+                    numberOfLines={2}
+                  >
                     {item.label}
                   </Text>
 
-                  {/* Toggle switch */}
-                  {(item as any).toggle ? (
-                    <Switch
-                      value={(item as any).toggleValue}
-                      onValueChange={item.onPress}
-                      trackColor={{ false: Colors.border, true: Colors.primary }}
-                      thumbColor="#fff"
-                    />
-                  ) : item.value ? (
-                    <Text style={styles.menuValue}>{item.value}</Text>
+                  {item.value ? (
+                    <View style={styles.menuValueWrap}>
+                      <Text style={styles.menuValue} numberOfLines={2}>
+                        {item.value}
+                      </Text>
+                      {(item as any).arrow ? (
+                        <Text style={styles.menuChevron}>{'\u203A'}</Text>
+                      ) : null}
+                    </View>
                   ) : (item as any).arrow ? (
-                    <Text style={styles.menuChevron}>›</Text>
+                    <Text style={styles.menuChevron}>{'\u203A'}</Text>
                   ) : null}
                 </TouchableOpacity>
               ))}
             </View>
           </View>
         ))}
+
       </ScrollView>
     </View>
   );
 }
 
-// Dummy to avoid TS error for async in render — getStorePreference is called in useEffect
 function await_getStore(): string | null { return null; }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.bg },
   scroll: { flex: 1 },
-  scrollContent: { padding: Spacing.md, gap: 16, paddingBottom: 140 },
+  scrollContent: { padding: Spacing.md, gap: 14, paddingBottom: 140 },
 
   pageTitle: {
     fontSize: 20,
@@ -933,7 +1266,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
 
-  // ── Avatar card ────────────────────────────────────────────────────────────
   avatarCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -942,7 +1274,6 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     gap: 14,
   },
-  // Outer ring — same hue as avatar, very faint
   avatarRing: {
     width: 68, height: 68, borderRadius: 34,
     borderWidth: 2.5,
@@ -953,7 +1284,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   avatarText: { fontSize: 24, fontWeight: '800', color: '#fff', letterSpacing: -0.5 },
-  // Google (or future provider) badge on the bottom-right of the ring
   avatarBadge: {
     position: 'absolute', bottom: 0, right: 0,
     width: 20, height: 20, borderRadius: 10,
@@ -971,11 +1301,10 @@ const styles = StyleSheet.create({
   },
   providerPillText: { fontSize: 10, fontWeight: '600', color: Colors.primary },
 
-  // ── Sections ───────────────────────────────────────────────────────────────
   sectionTitle: {
     fontSize: 11, fontWeight: '700', color: Colors.textTertiary,
     letterSpacing: 0.8, textTransform: 'uppercase',
-    marginBottom: 6, paddingHorizontal: 4,
+    marginBottom: 5, paddingHorizontal: 4,
   },
   menuCard: {
     backgroundColor: Colors.surface,
@@ -983,19 +1312,20 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   menuRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md, paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md, paddingVertical: 13,
+    gap: 12,
   },
   menuRowBorder: {
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.border,
   },
-  menuLabel:        { fontSize: 15, fontWeight: '500', color: Colors.textPrimary },
+  menuLabel:        { flex: 1, fontSize: 15, fontWeight: '500', color: Colors.textPrimary, lineHeight: 20, paddingTop: 1 },
   menuLabelDanger:  { color: Colors.danger },
-  menuValue:        { fontSize: 14, color: Colors.textSecondary },
-  menuChevron:      { fontSize: 20, color: Colors.textTertiary },
+  menuValueWrap:    { flexShrink: 1, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'flex-end', marginLeft: 8, paddingTop: 1 },
+  menuValue:        { flexShrink: 1, fontSize: 13, color: Colors.textSecondary, textAlign: 'right', lineHeight: 17 },
+  menuChevron:      { fontSize: 20, color: Colors.textTertiary, marginLeft: 6, lineHeight: 20 },
 
-  // ── Budget modal ───────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
@@ -1013,6 +1343,68 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 17, fontWeight: '700', color: Colors.textPrimary,
     textAlign: 'center',
+  },
+  currencyModalSubtext: {
+    marginTop: -6,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  currencyList: {
+    gap: 10,
+  },
+  currencyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.bg,
+  },
+  currencyRowActive: {
+    backgroundColor: '#EAF3FF',
+    borderColor: '#BFD7FF',
+  },
+  currencyRowLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  currencySymbol: {
+    minWidth: 30,
+    fontSize: 22,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  currencyCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  currencyName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  currencyCodeText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  currencyCheck: {
+    minWidth: 24,
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.textTertiary,
+    textAlign: 'right',
+  },
+  currencyCheckActive: {
+    color: Colors.primary,
   },
   budgetInputRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -1038,8 +1430,155 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalSaveText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  modalSaveDisabled: {
+    opacity: 0.65,
+  },
+  notificationModalSubtext: {
+    marginTop: -6,
+    fontSize: 13,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  notificationToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: Radius.lg,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E5EDF7',
+  },
+  notificationToggleTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  notificationToggleHint: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 17,
+    color: Colors.textSecondary,
+  },
+  notificationEnabledPill: {
+    minWidth: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  notificationEnabledPillActive: {
+    backgroundColor: '#E8F1FF',
+    borderColor: '#C7DBFF',
+  },
+  notificationEnabledPillText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  notificationEnabledPillTextActive: {
+    color: Colors.primary,
+  },
+  notificationField: {
+    gap: 10,
+  },
+  notificationFieldLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  notificationDayWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  notificationDayChip: {
+    minWidth: 48,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 999,
+    backgroundColor: Colors.bg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: 'center',
+  },
+  notificationDayChipActive: {
+    backgroundColor: '#E8F1FF',
+    borderColor: '#BFD8FF',
+  },
+  notificationDayChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  notificationDayChipTextActive: {
+    color: Colors.primary,
+  },
+  notificationTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  notificationTimeInputWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  notificationTimeInput: {
+    minWidth: 38,
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+  },
+  notificationTimeDivider: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  notificationMeridiemWrap: {
+    flexDirection: 'row',
+    backgroundColor: Colors.bg,
+    borderRadius: Radius.md,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  notificationMeridiemButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: Radius.sm,
+  },
+  notificationMeridiemButtonActive: {
+    backgroundColor: '#E8F1FF',
+  },
+  notificationMeridiemText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  notificationMeridiemTextActive: {
+    color: Colors.primary,
+  },
+  notificationPermissionHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: Colors.textSecondary,
+  },
 
-  // ── Feedback modal ─────────────────────────────────────────────────────────
   starsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1269,3 +1808,5 @@ const styles = StyleSheet.create({
     color: '#2E9E5B',
   },
 });
+
+

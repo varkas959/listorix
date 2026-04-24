@@ -1,4 +1,4 @@
-import React, { useState, useRef, forwardRef, useImperativeHandle } from 'react';
+import React, { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/colors';
 import { IconPen, IconMic, IconScan, IconPlus, IconClose } from './Icons';
 import { useListStore } from '../../store/useListStore';
+import { getFabHintSeen, setFabHintSeen } from '../../services/storage';
 
 interface Props {
   onVoice:  () => void;
@@ -18,6 +19,8 @@ interface Props {
 }
 
 const ICON_COLOR = Colors.primary;
+const FAB_BOTTOM_OFFSET = 62;
+const FAB_SIDE_OFFSET = 18;
 
 export interface FABHandle {
   open: () => void;
@@ -27,6 +30,7 @@ export const FAB = forwardRef<FABHandle, Props>(function FAB({ onVoice, onManual
   const { bottom: safeBottom } = useSafeAreaInsets();
   const isEmpty = useListStore(s => s.items.length === 0);
   const [open, setOpen] = useState(false);
+  const [showHint, setShowHint] = useState(false);
 
   const rotation     = useRef(new Animated.Value(0)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
@@ -36,9 +40,22 @@ export const FAB = forwardRef<FABHandle, Props>(function FAB({ onVoice, onManual
   const DURATION = 200;
   const STAGGER  = 35;
 
+  useEffect(() => {
+    getFabHintSeen().then((seen) => {
+      if (!seen) setShowHint(true);
+    });
+  }, []);
+
   useImperativeHandle(ref, () => ({ open: expand }));
 
+  function dismissHint() {
+    if (!showHint) return;
+    setShowHint(false);
+    setFabHintSeen().catch(() => undefined);
+  }
+
   function expand() {
+    dismissHint();
     setOpen(true);
     Animated.parallel([
       Animated.timing(rotation,     { toValue: 1, duration: DURATION, useNativeDriver: true }),
@@ -64,6 +81,7 @@ export const FAB = forwardRef<FABHandle, Props>(function FAB({ onVoice, onManual
   }
 
   function handleOption(action: () => void) {
+    dismissHint();
     action();
     close();
   }
@@ -110,9 +128,21 @@ export const FAB = forwardRef<FABHandle, Props>(function FAB({ onVoice, onManual
       )}
 
       <View
-        style={[styles.container, { bottom: safeBottom + 20 }]}
+        style={[
+          styles.container,
+          {
+            bottom: Math.max(safeBottom, 4) + FAB_BOTTOM_OFFSET,
+            right: FAB_SIDE_OFFSET,
+          },
+        ]}
         pointerEvents="box-none"
       >
+        {showHint && !open && !isEmpty && (
+          <View style={styles.hintBubble} pointerEvents="none">
+            <Text style={styles.hintText}>Tap + to add items</Text>
+          </View>
+        )}
+
         {/* Render in reverse so scan is top, type manually is bottom (nearest FAB) */}
         {[...items].reverse().map((item, reversedIdx) => {
           const i = items.length - 1 - reversedIdx;
@@ -179,10 +209,27 @@ const styles = StyleSheet.create({
 
   container: {
     position: 'absolute',
-    alignSelf: 'center',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     zIndex: 110,
     gap: 10,
+  },
+  hintBubble: {
+    marginBottom: 2,
+    backgroundColor: '#132238',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  hintText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    letterSpacing: -0.1,
   },
 
   // ── Option row ──────────────────────────────────────────────────────────────
@@ -230,16 +277,16 @@ const styles = StyleSheet.create({
 
   // ── FAB ─────────────────────────────────────────────────────────────────────
   fab: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.14,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowRadius: 16,
+    elevation: 6,
   },
 });

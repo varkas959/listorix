@@ -60,7 +60,7 @@ const T: Record<string, Strings> = {
     defaultStore: 'Default Store', monthlyBudget: 'Monthly Budget',
     currency: 'Currency', language: 'Language',
     exportHistory: 'Export History', clearAllLists: 'Clear All Lists',
-    notifications: 'Notifications', version: 'Version', signOut: 'Stop syncing & sign out',
+    notifications: 'Notifications', version: 'Version', signOut: 'Sign Out',
     termsOfService: 'Terms of Service', privacyPolicy: 'Privacy Policy',
     cancel: 'Cancel', save: 'Save', notSet: 'Not set', on: 'On', off: 'Off',
   },

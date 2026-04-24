@@ -7,7 +7,6 @@ import {
   Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path, Defs, Filter, FeDropShadow } from 'react-native-svg';
 import { Colors } from '../../constants/colors';
 
 // ── Geometry ──────────────────────────────────────────────────────────────────
@@ -17,12 +16,8 @@ import { Colors } from '../../constants/colors';
 // Arc from (152, 0) to (238, 0) with radius 45.
 // FAB center: x = (152+238)/2 = 195.
 //
-const NAV_PATH   = 'M0,0 H152 A45,45,0,0,1,238,0 H390 V52 H0 Z';
-const NAV_WIDTH  = 390;
 const NAV_HEIGHT = 52;
-
-// Where the FAB center sits (fraction of screen width)
-export const FAB_CENTER_X_FRAC = 195 / 390;  // 0.5
+const MIN_BOTTOM_PAD = 6;
 
 interface TabItem {
   key:   string;
@@ -35,7 +30,6 @@ interface Props {
   descriptors: Record<string, unknown>;
   navigation:  { emit: Function; navigate: Function };
   tabs:        TabItem[];
-  onFabPress:  () => void;
 }
 
 // ── TabButton — owns its own Animated.Values ──────────────────────────────────
@@ -117,8 +111,8 @@ function TabButton({ tab, active, onPress }: TabButtonProps) {
 
 // ── CurvedTabBar ──────────────────────────────────────────────────────────────
 export function CurvedTabBar({ state, navigation, tabs }: Props) {
-  const insets    = useSafeAreaInsets();
-  const bottomPad = Math.max(insets.bottom, 4);
+  const insets = useSafeAreaInsets();
+  const bottomPad = Math.max(insets.bottom, MIN_BOTTOM_PAD);
 
   function handlePress(key: string, index: number) {
     const route = state.routes[index];
@@ -133,30 +127,14 @@ export function CurvedTabBar({ state, navigation, tabs }: Props) {
   }
 
   return (
-    <View style={[styles.wrapper, { height: NAV_HEIGHT + bottomPad }]}>
-      {/* SVG curved bar — sits at the TOP of the wrapper */}
-      <Svg
-        width="100%"
-        height={NAV_HEIGHT}
-        viewBox={`0 0 ${NAV_WIDTH} ${NAV_HEIGHT}`}
-        preserveAspectRatio="none"
-      >
-        <Defs>
-          <Filter id="navShadow" x="-2%" y="-30%" width="104%" height="160%">
-            <FeDropShadow dx="0" dy="-3" stdDeviation="4" floodOpacity="0.13" />
-          </Filter>
-        </Defs>
-        <Path d={NAV_PATH} fill="white" filter="url(#navShadow)" />
-      </Svg>
-
-      {/* White fill for home-indicator safe area below the curve */}
-      {bottomPad > 0 && (
-        <View style={{ height: bottomPad, backgroundColor: '#fff' }} />
-      )}
-
-      {/* Tab row — absolutely overlaid on the SVG area */}
+    <View
+      style={[
+        styles.wrapper,
+        { height: NAV_HEIGHT + bottomPad, paddingBottom: bottomPad },
+      ]}
+    >
       <View style={styles.row}>
-        {tabs.slice(0, 2).map((tab, i) => (
+        {tabs.map((tab, i) => (
           <TabButton
             key={tab.key}
             tab={tab}
@@ -164,21 +142,6 @@ export function CurvedTabBar({ state, navigation, tabs }: Props) {
             onPress={() => handlePress(tab.key, i)}
           />
         ))}
-
-        {/* Center spacer — notch gap for the FAB */}
-        <View style={styles.notchSpacer} />
-
-        {tabs.slice(2).map((tab, i) => {
-          const idx = i + 2;
-          return (
-            <TabButton
-              key={tab.key}
-              tab={tab}
-              active={state.index === idx}
-              onPress={() => handlePress(tab.key, idx)}
-            />
-          );
-        })}
       </View>
     </View>
   );
@@ -190,18 +153,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'transparent',
-    overflow: 'visible',
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E7ECF2',
   },
   row: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     height: NAV_HEIGHT,
-    paddingLeft: 8,
+    paddingHorizontal: 10,
   },
   tab: {
     flex: 1,
@@ -210,9 +170,6 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 4,
     gap: 2,
-  },
-  notchSpacer: {
-    width: 90,   // center notch arc width (238-152 = 86, with a bit of padding)
   },
   label: {
     fontSize: 10,
