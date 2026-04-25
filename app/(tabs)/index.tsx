@@ -485,6 +485,7 @@ const insightText = useMemo(() => {
         )}
         <ActionFirstEmptyState
           insetTop={8}
+          insetBottom={insets.bottom}
           onAddItems={addItem}
         />
       </View>
@@ -817,14 +818,16 @@ const ctxStyles = StyleSheet.create({
 
 function ActionFirstEmptyState({
   insetTop,
+  insetBottom,
   onAddItems,
 }: {
   insetTop: number;
+  insetBottom: number;
   onAddItems: (item: ParsedItem) => void;
 }) {
   const inputRef = React.useRef<TextInput>(null);
   const [text, setText] = React.useState('');
-  const [keyboardOpen, setKeyboardOpen] = React.useState(false);
+  const [keyboardHeight, setKeyboardHeight] = React.useState(0);
 
   const parsedItems = React.useMemo(
     () => (text.trim() ? parseBulkText(text) : []),
@@ -842,11 +845,11 @@ function ActionFirstEmptyState({
     if (Platform.OS === 'ios') {
       const onChange = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
         const screenHeight = Dimensions.get('window').height;
-        const keyboardHeight = Math.max(0, screenHeight - event.endCoordinates.screenY);
-        setKeyboardOpen(keyboardHeight > 0);
+        const nextKeyboardHeight = Math.max(0, screenHeight - event.endCoordinates.screenY);
+        setKeyboardHeight(nextKeyboardHeight);
       });
       const onHide = Keyboard.addListener('keyboardWillHide', () => {
-        setKeyboardOpen(false);
+        setKeyboardHeight(0);
       });
       return () => {
         onChange.remove();
@@ -855,10 +858,10 @@ function ActionFirstEmptyState({
     }
 
     const onShow = Keyboard.addListener('keyboardDidShow', () => {
-      setKeyboardOpen(true);
+      setKeyboardHeight(Keyboard.metrics()?.height ?? 0);
     });
     const onHide = Keyboard.addListener('keyboardDidHide', () => {
-      setKeyboardOpen(false);
+      setKeyboardHeight(0);
     });
     return () => {
       onShow.remove();
@@ -880,20 +883,19 @@ function ActionFirstEmptyState({
   }
 
   const ctaLabel = `Add ${parsedItems.length} ${parsedItems.length === 1 ? 'item' : 'items'}`;
+  const ctaBottom = keyboardHeight > 0
+    ? keyboardHeight + 8
+    : Math.max(96, insetBottom + 78);
 
   return (
     <Pressable
       style={[
         styles.empty,
-        { paddingTop: insetTop, paddingBottom: keyboardOpen ? 12 : 128 },
+        { paddingTop: insetTop, paddingBottom: 24 },
       ]}
       onPress={dismissInput}
     >
-      <KeyboardAvoidingView
-        style={styles.emptyContent}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
-      >
+      <KeyboardAvoidingView style={styles.emptyContent}>
         <View style={styles.emptyIllustration}>
           <TouchableOpacity
             style={styles.primaryInputCard}
@@ -916,19 +918,21 @@ function ActionFirstEmptyState({
             />
           </TouchableOpacity>
         </View>
-
-        <View style={styles.emptyBottomArea}>
-          {hasParsedItems && (
-            <TouchableOpacity
-              style={styles.emptyCtaBtn}
-              onPress={handleAddItems}
-              activeOpacity={0.88}
-            >
-              <Text style={styles.emptyCtaText}>{ctaLabel}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
       </KeyboardAvoidingView>
+      {hasParsedItems && (
+        <View
+          pointerEvents="box-none"
+          style={[styles.emptyCtaDock, { bottom: ctaBottom }]}
+        >
+          <TouchableOpacity
+            style={styles.emptyCtaBtn}
+            onPress={handleAddItems}
+            activeOpacity={0.88}
+          >
+            <Text style={styles.emptyCtaText}>{ctaLabel}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -1345,6 +1349,11 @@ const styles = StyleSheet.create({
   emptyBottomArea: {
     marginTop: 'auto',
     paddingTop: 8,
+  },
+  emptyCtaDock: {
+    position: 'absolute',
+    left: 18,
+    right: 18,
   },
 
   emptyCtaBtn: {
