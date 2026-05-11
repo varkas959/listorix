@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="favicon.png">
+  <title>Listorix – Never forget a grocery item again</title>
+  <meta name="description" content="Track your bill in real-time, avoid overspending, and shop stress-free. Add items by voice, share with family." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --teal:        #1AABA8;
+      --teal-dark:   #138A87;
+      --teal-light:  #E8F8F7;
+      --teal-mid:    #B2E4E3;
+      --text:        #0D1117;
+      --text-2:      #3D4451;
+      --muted:       #6B7280;
+      --border:      #E5E7EB;
+      --bg:          #FFFFFF;
+      --card:        #F9FAFB;
+      --radius-sm:   10px;
+      --radius-md:   16px;
+      --radius-lg:   24px;
+      --radius-xl:   32px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─────────────────── NAV ─────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      height: 64px; padding: 0 32px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none;
+    }
+    .logo-mark {
+      width: 38px; height: 38px; border-radius: 11px;
+      background: linear-gradient(135deg, #1AABA8 0%, #0E8280 100%);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(26,171,168,0.35);
+    }
+    .logo-mark svg { width: 20px; height: 20px; }
+    .logo-name { font-size: 17px; font-weight: 800; color: var(--text); letter-spacing: -0.3px; }
+    .nav-pill {
+      background: var(--teal); color: #fff;
+      padding: 9px 20px; border-radius: 100px;
+      font-size: 14px; font-weight: 600;
+      text-decoration: none; transition: background 0.2s, transform 0.15s;
+    }
+    .nav-pill:hover { background: var(--teal-dark); transform: translateY(-1px); }
+
+    /* ─────────────────── HERO ─────────────────── */
+    .hero {
+      max-width: 1120px; margin: 0 auto;
+      padding: 96px 32px 80px;
+      display: grid; grid-template-columns: 1fr 480px;
+      gap: 64px; align-items: center;
+    }
+    .hero-eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--teal-light); color: var(--teal-dark);
+      font-size: 13px; font-weight: 600;
+      padding: 6px 14px; border-radius: 100px;
+      margin-bottom: 24px;
+      border: 1px solid var(--teal-mid);
+    }
+    .hero-eyebrow span { font-size: 16px; }
+    .hero h1 {
+      font-size: clamp(38px, 5.5vw, 58px);
+      font-weight: 900; line-height: 1.08;
+      letter-spacing: -2px; color: var(--text);
+      margin-bottom: 22px;
+    }
+    .hero h1 em { font-style: normal; color: var(--teal); }
+    .hero-sub {
+      font-size: 18px; color: var(--muted);
+      line-height: 1.7; margin-bottom: 40px;
+      max-width: 440px;
+    }
+    .hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: var(--text); color: #fff;
+      padding: 14px 24px; border-radius: var(--radius-md);
+      font-size: 15px; font-weight: 700;
+      text-decoration: none;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(0,0,0,0.22); }
+    .btn-primary svg { width: 22px; height: 22px; }
+    .btn-secondary {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: transparent; color: var(--text);
+      padding: 14px 24px; border-radius: var(--radius-md);
+      font-size: 15px; font-weight: 600;
+      text-decoration: none; border: 1.5px solid var(--border);
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .btn-secondary:hover { border-color: var(--teal); transform: translateY(-2px); }
+    .btn-secondary svg { width: 22px; height: 22px; }
+    .hero-trust {
+      margin-top: 28px; display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--muted);
+    }
+    .hero-trust-avatars { display: flex; }
+    .hero-trust-avatars span {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 2px solid #fff; display: flex; align-items: center; justify-content: center;
+      font-size: 13px; margin-left: -6px; background: var(--teal-light);
+    }
+    .hero-trust-avatars span:first-child { margin-left: 0; }
+    .stars { color: #F59E0B; font-size: 14px; letter-spacing: 1px; }
+
+    /* Phone Mockup */
+    .hero-visual { display: flex; justify-content: center; }
+    .phone {
+      width: 280px; height: 580px;
+      background: #fff;
+      border-radius: 44px;
+      box-shadow:
+        0 0 0 10px #1a1a2e,
+        0 0 0 12px #2d2d4e,
+        0 32px 64px rgba(0,0,0,0.3),
+        0 8px 24px rgba(26,171,168,0.2);
+      overflow: hidden;
+      position: relative;
+    }
+    .phone-notch {
+      position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+      width: 100px; height: 28px; background: #1a1a2e;
+      border-bottom-left-radius: 16px; border-bottom-right-radius: 16px;
+      z-index: 10;
+    }
+    .phone-screen {
+      padding: 40px 16px 16px;
+      height: 100%; display: flex; flex-direction: column;
+      background: #F5F7FA;
+    }
+    .phone-header {
+      background: #fff; border-radius: var(--radius-md);
+      padding: 14px 16px; margin-bottom: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .phone-amount { font-size: 22px; font-weight: 900; color: var(--teal); letter-spacing: -0.5px; }
+    .phone-amount-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .phone-progress {
+      height: 4px; background: #E5E7EB; border-radius: 2px; margin-top: 10px; overflow: hidden;
+    }
+    .phone-progress-fill { height: 100%; width: 65%; background: var(--teal); border-radius: 2px; }
+    .phone-section-label {
+      font-size: 10px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      margin: 10px 4px 6px;
+    }
+    .phone-item {
+      background: #fff; border-radius: 12px;
+      padding: 10px 12px; margin-bottom: 6px;
+      display: flex; align-items: center; gap: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+    .phone-cb {
+      width: 20px; height: 20px; border-radius: 6px; flex-shrink: 0;
+      border: 2px solid #E5E7EB;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .phone-cb.done { background: var(--teal); border-color: var(--teal); }
+    .phone-cb.done::after { content: '✓'; color: #fff; font-size: 11px; font-weight: 800; }
+    .phone-emoji { font-size: 18px; }
+    .phone-item-info { flex: 1; min-width: 0; }
+    .phone-item-name { font-size: 12px; font-weight: 600; color: var(--text); }
+    .phone-item-meta { font-size: 10px; color: var(--muted); }
+    .phone-item-price { font-size: 12px; font-weight: 700; color: var(--text); }
+    .phone-item-price.unknown { color: var(--teal); font-size: 11px; }
+    .phone-fab {
+      position: absolute; bottom: 20px; right: 16px;
+      width: 48px; height: 48px; border-radius: 50%;
+      background: var(--teal);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 16px rgba(26,171,168,0.5);
+      font-size: 24px; font-weight: 300; color: #fff; line-height: 1;
+    }
+
+    /* ─────────────────── SECTION SHARED ─────────────────── */
+    .section { padding: 88px 32px; }
+    .section-inner { max-width: 1120px; margin: 0 auto; }
+    .section-tag {
+      font-size: 12px; font-weight: 700; color: var(--teal);
+      text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: clamp(28px, 3.5vw, 40px);
+      font-weight: 900; letter-spacing: -1.2px;
+      color: var(--text); margin-bottom: 14px;
+    }
+    .section-sub {
+      font-size: 17px; color: var(--muted);
+      max-width: 520px; line-height: 1.7; margin-bottom: 56px;
+    }
+
+    /* ─────────────────── VALUE PROPS ─────────────────── */
+    .values-bg { background: var(--teal-light); }
+    .values-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;
+    }
+    .value-card {
+      background: #fff; border-radius: var(--radius-lg);
+      padding: 32px 24px;
+      border: 1px solid rgba(26,171,168,0.12);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .value-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(26,171,168,0.12); }
+    .value-icon {
+      width: 52px; height: 52px; border-radius: 16px;
+      background: var(--teal-light);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; margin-bottom: 18px;
+    }
+    .value-title { font-size: 16px; font-weight: 800; color: var(--text); margin-bottom: 8px; }
+    .value-desc { font-size: 14px; color: var(--muted); line-height: 1.65; }
+
+    /* ─────────────────── FEATURES ─────────────────── */
+    .features-list { display: flex; flex-direction: column; gap: 80px; }
+    .feature-row {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 64px; align-items: center;
+    }
+    .feature-row.reverse { direction: rtl; }
+    .feature-row.reverse > * { direction: ltr; }
+    .feature-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--teal-light); color: var(--teal-dark);
+      font-size: 12px; font-weight: 700;
+      padding: 5px 12px; border-radius: 100px;
+      margin-bottom: 16px; border: 1px solid var(--teal-mid);
+    }
+    .feature-title { font-size: 28px; font-weight: 900; letter-spacing: -0.8px; margin-bottom: 14px; }
+    .feature-desc { font-size: 16px; color: var(--muted); line-height: 1.75; margin-bottom: 24px; }
+    .feature-points { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+    .feature-points li {
+      display: flex; align-items: flex-start; gap: 10px;
+      font-size: 14px; color: var(--text-2);
+    }
+    .feature-points li::before {
+      content: '✓';
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--teal); color: #fff;
+      font-size: 11px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+    }
+    .feature-visual {
+      background: linear-gradient(145deg, var(--teal-light) 0%, #D0F0EF 100%);
+      border-radius: var(--radius-xl);
+      height: 340px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 80px;
+      border: 1px solid var(--teal-mid);
+    }
+
+    /* ─────────────────── SOCIAL PROOF ─────────────────── */
+    .proof-bg { background: var(--card); }
+    .proof-rating {
+      display: flex; flex-direction: column; align-items: center;
+      margin-bottom: 56px;
+    }
+    .proof-stars { font-size: 36px; color: #F59E0B; letter-spacing: 4px; margin-bottom: 8px; }
+    .proof-score { font-size: 56px; font-weight: 900; color: var(--text); letter-spacing: -2px; line-height: 1; }
+    .proof-score-sub { font-size: 15px; color: var(--muted); margin-top: 6px; }
+    .reviews-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .review-card {
+      background: #fff; border-radius: var(--radius-lg);
+      padding: 28px 24px; border: 1px solid var(--border);
+      transition: transform 0.2s;
+    }
+    .review-card:hover { transform: translateY(-3px); }
+    .review-stars { color: #F59E0B; font-size: 15px; margin-bottom: 14px; letter-spacing: 2px; }
+    .review-text { font-size: 15px; color: var(--text-2); line-height: 1.7; margin-bottom: 20px; font-style: italic; }
+    .review-author { display: flex; align-items: center; gap: 12px; }
+    .review-avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--teal-light);
+      display: flex; align-items: center; justify-content: center; font-size: 18px;
+    }
+    .review-name { font-size: 14px; font-weight: 700; color: var(--text); }
+    .review-city { font-size: 12px; color: var(--muted); }
+
+    /* ─────────────────── HOW IT WORKS ─────────────────── */
+    .steps-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; position: relative; }
+    .steps-grid::before {
+      content: '';
+      position: absolute; top: 36px; left: calc(16.66% + 16px); right: calc(16.66% + 16px);
+      height: 2px; background: linear-gradient(90deg, var(--teal-mid), var(--teal-mid));
+      border-top: 2px dashed var(--teal-mid);
+    }
+    .step { text-align: center; padding: 0 16px; }
+    .step-num {
+      width: 72px; height: 72px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--teal) 0%, var(--teal-dark) 100%);
+      color: #fff; font-size: 26px; font-weight: 900;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 24px;
+      box-shadow: 0 8px 24px rgba(26,171,168,0.35);
+      position: relative; z-index: 1;
+    }
+    .step-emoji { font-size: 28px; margin-bottom: 4px; }
+    .step-title { font-size: 18px; font-weight: 800; color: var(--text); margin-bottom: 10px; }
+    .step-desc { font-size: 14px; color: var(--muted); line-height: 1.7; }
+
+    /* ─────────────────── FINAL CTA ─────────────────── */
+    .cta-section {
+      background: linear-gradient(135deg, #0D1117 0%, #1a2535 100%);
+      padding: 96px 32px; text-align: center; position: relative; overflow: hidden;
+    }
+    .cta-section::before {
+      content: '';
+      position: absolute; top: -50%; left: 50%; transform: translateX(-50%);
+      width: 600px; height: 600px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(26,171,168,0.15) 0%, transparent 70%);
+    }
+    .cta-inner { position: relative; z-index: 1; max-width: 600px; margin: 0 auto; }
+    .cta-tag {
+      display: inline-block; background: rgba(26,171,168,0.15);
+      color: var(--teal); font-size: 13px; font-weight: 700;
+      padding: 6px 16px; border-radius: 100px; margin-bottom: 24px;
+      border: 1px solid rgba(26,171,168,0.3);
+    }
+    .cta-section h2 {
+      font-size: clamp(32px, 5vw, 52px); font-weight: 900;
+      color: #fff; letter-spacing: -1.5px; margin-bottom: 16px;
+    }
+    .cta-section p { font-size: 17px; color: rgba(255,255,255,0.6); margin-bottom: 40px; }
+    .cta-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn-cta-primary {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: var(--teal); color: #fff;
+      padding: 16px 28px; border-radius: var(--radius-md);
+      font-size: 15px; font-weight: 700; text-decoration: none;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 8px 32px rgba(26,171,168,0.4);
+    }
+    .btn-cta-primary:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(26,171,168,0.5); }
+    .btn-cta-primary svg { width: 22px; height: 22px; }
+    .btn-cta-secondary {
+      display: inline-flex; align-items: center; gap: 10px;
+      background: rgba(255,255,255,0.08); color: #fff;
+      padding: 16px 28px; border-radius: var(--radius-md);
+      font-size: 15px; font-weight: 600; text-decoration: none;
+      border: 1px solid rgba(255,255,255,0.15);
+      transition: background 0.2s, transform 0.2s;
+    }
+    .btn-cta-secondary:hover { background: rgba(255,255,255,0.14); transform: translateY(-2px); }
+    .btn-cta-secondary svg { width: 22px; height: 22px; }
+    .cta-note { margin-top: 20px; font-size: 13px; color: rgba(255,255,255,0.4); }
+
+    /* ─────────────────── FOOTER ─────────────────── */
+    footer { border-top: 1px solid var(--border); padding: 36px 32px; }
+    .footer-inner {
+      max-width: 1120px; margin: 0 auto;
+      display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;
+    }
+    .footer-links { display: flex; gap: 24px; }
+    .footer-links a { font-size: 13px; color: var(--muted); text-decoration: none; }
+    .footer-links a:hover { color: var(--teal); }
+    .footer-copy { font-size: 13px; color: var(--muted); }
+
+    /* ─────────────────── RESPONSIVE ─────────────────── */
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; padding: 64px 24px 48px; text-align: center; }
+      .hero-sub { max-width: 100%; }
+      .hero-actions { justify-content: center; }
+      .hero-trust { justify-content: center; }
+      .hero-visual { order: -1; }
+      .phone { width: 240px; height: 500px; }
+      .values-grid { grid-template-columns: repeat(2, 1fr); }
+      .feature-row, .feature-row.reverse { grid-template-columns: 1fr; direction: ltr; }
+      .feature-visual { height: 220px; font-size: 60px; }
+      .reviews-grid { grid-template-columns: 1fr; }
+      .steps-grid { grid-template-columns: 1fr; }
+      .steps-grid::before { display: none; }
+      .section { padding: 64px 24px; }
+      .footer-inner { flex-direction: column; text-align: center; }
+    }
+    @media (max-width: 600px) {
+      .values-grid { grid-template-columns: 1fr; }
+      nav { padding: 0 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── NAV ────────────────────────────────────────────── -->
+<nav>
+  <a href="/" class="logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="20 6 9 17 4 12"/>
+      </svg>
+    </div>
+    <span class="logo-name">Listorix</span>
+  </a>
+  <a href="#download" class="nav-pill">Download Free →</a>
+</nav>
+
+<!-- ── HERO ───────────────────────────────────────────── -->
+<section>
+  <div class="hero">
+    <div>
+      <div class="hero-eyebrow">
+        <span>🛒</span> Built for smarter grocery shopping
+      </div>
+      <h1>Never forget a<br /><em>grocery item again.</em></h1>
+      <p class="hero-sub">
+        Track your bill in real-time, avoid overspending, and shop stress-free.
+        <strong style="color:var(--text); font-weight:700;">See your total update live as you add items.</strong>
+      </p>
+      <div class="hero-actions" id="download">
+        <a href="#" class="btn-primary">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+          Download on iPhone
+        </a>
+        <a href="#" class="btn-secondary">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.18 23.76c.3.17.64.22.99.14l12.82-7.4-2.82-2.82-10.99 10.08zM.35 1.15C.13 1.53 0 2.02 0 2.62v18.76c0 .6.13 1.09.36 1.47l.07.07 10.51-10.51v-.25L.42 1.08l-.07.07zM20.65 10.35l-2.83-1.63-3.17 3.17 3.17 3.17 2.85-1.65c.81-.47.81-1.23-.02-1.06zM3.18.24L16 7.64l-2.82 2.82L2.19.38c.36-.22.74-.24.99-.14z"/></svg>
+          Get it on Android
+        </a>
+      </div>
+      <div class="hero-trust">
+        <div class="hero-trust-avatars">
+          <span>👨</span><span>👩</span><span>🧑</span><span>👴</span>
+        </div>
+        <span class="stars">★★★★★</span>
+        <span>Loved by shoppers and families everywhere</span>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="phone-header">
+            <div class="phone-amount">₹340 left</div>
+            <div class="phone-amount-sub">Budget ₹500 · 6 items remaining</div>
+            <div class="phone-progress"><div class="phone-progress-fill"></div></div>
+          </div>
+          <div class="phone-section-label">Vegetables</div>
+          <div class="phone-item">
+            <div class="phone-cb done"></div>
+            <span class="phone-emoji">🥛</span>
+            <div class="phone-item-info">
+              <div class="phone-item-name">Milk</div>
+              <div class="phone-item-meta">2L · Dairy</div>
+            </div>
+            <div class="phone-item-price">₹60</div>
+          </div>
+          <div class="phone-item">
+            <div class="phone-cb done"></div>
+            <span class="phone-emoji">🍅</span>
+            <div class="phone-item-info">
+              <div class="phone-item-name">Tomatoes</div>
+              <div class="phone-item-meta">500g</div>
+            </div>
+            <div class="phone-item-price">₹40</div>
+          </div>
+          <div class="phone-item">
+            <div class="phone-cb"></div>
+            <span class="phone-emoji">🧅</span>
+            <div class="phone-item-info">
+              <div class="phone-item-name">Onions</div>
+              <div class="phone-item-meta">1kg</div>
+            </div>
+            <div class="phone-item-price unknown">₹?</div>
+          </div>
+          <div class="phone-section-label">Dairy</div>
+          <div class="phone-item">
+            <div class="phone-cb"></div>
+            <span class="phone-emoji">🧀</span>
+            <div class="phone-item-info">
+              <div class="phone-item-name">Paneer</div>
+              <div class="phone-item-meta">200g</div>
+            </div>
+            <div class="phone-item-price">₹120</div>
+          </div>
+          <div class="phone-item">
+            <div class="phone-cb"></div>
+            <span class="phone-emoji">🍪</span>
+            <div class="phone-item-info">
+              <div class="phone-item-name">Biscuits</div>
+              <div class="phone-item-meta">2 packs</div>
+            </div>
+            <div class="phone-item-price">₹45</div>
+          </div>
+        </div>
+        <div class="phone-fab">+</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── VALUE PROPS ─────────────────────────────────────── -->
+<section class="section values-bg">
+  <div class="section-inner">
+    <div class="section-tag">Why Listorix</div>
+    <h2 class="section-title">Shopping made simple</h2>
+    <p class="section-sub">No more guessing at the counter. No more forgotten items. No more overspending.</p>
+    <div class="values-grid">
+      <div class="value-card">
+        <div class="value-icon">⚡</div>
+        <div class="value-title">Add items in seconds</div>
+        <div class="value-desc">Type, speak, or scan a receipt. Items are in your list before you can blink.</div>
+      </div>
+      <div class="value-card">
+        <div class="value-icon">🧠</div>
+        <div class="value-title">Never forget again</div>
+        <div class="value-desc">Repeat your last trip in one tap. Your regulars are always a tap away.</div>
+      </div>
+      <div class="value-card">
+        <div class="value-icon">💸</div>
+        <div class="value-title">Stay on budget</div>
+        <div class="value-desc">See your running total live. Know exactly how much you're spending before checkout.</div>
+      </div>
+      <div class="value-card">
+        <div class="value-icon">👨‍👩‍👧</div>
+        <div class="value-title">Shop as a family</div>
+        <div class="value-desc">Share your list in one tap. Family members can add items and see updates in real time.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FEATURES ────────────────────────────────────────── -->
+<section class="section">
+  <div class="section-inner">
+    <div class="section-tag">Features</div>
+    <h2 class="section-title">Built for how you actually shop.</h2>
+    <p class="section-sub">Not a generic to-do list. Every feature is designed around grocery shopping.</p>
+
+    <div class="features-list">
+
+      <div class="feature-row">
+        <div>
+          <div class="feature-badge">🎙️ Voice Input</div>
+          <h3 class="feature-title">Just say what you need</h3>
+          <p class="feature-desc">Say items out loud and they're in your list instantly.</p>
+          <ul class="feature-points">
+            <li>Speak items naturally in your language</li>
+            <li>Supports English, Hindi, Telugu, Tamil, and Kannada voice input</li>
+            <li>Adds items instantly — no typing needed</li>
+          </ul>
+        </div>
+        <div class="feature-visual">🎙️</div>
+      </div>
+
+      <div class="feature-row reverse">
+        <div>
+          <div class="feature-badge">💰 Budget Tracker</div>
+          <h3 class="feature-title">No more billing counter shock</h3>
+          <p class="feature-desc">Your total updates the moment you tick an item. No surprises at checkout.</p>
+          <ul class="feature-points">
+            <li>See your total update live as you add items</li>
+            <li>Warning alert before you hit your limit</li>
+            <li>Spending breakdown by category</li>
+          </ul>
+        </div>
+        <div class="feature-visual">💰</div>
+      </div>
+
+      <div class="feature-row">
+        <div>
+          <div class="feature-badge">📸 Receipt Scan</div>
+          <h3 class="feature-title">Photo your bill, done</h3>
+          <p class="feature-desc">Point your camera at a receipt. Items are extracted in seconds.</p>
+          <ul class="feature-points">
+            <li>Works with printed & handwritten bills</li>
+            <li>Extracted in under 3 seconds</li>
+            <li>Review and edit before saving</li>
+          </ul>
+        </div>
+        <div class="feature-visual">📸</div>
+      </div>
+
+      <div class="feature-row reverse">
+        <div>
+          <div class="feature-badge">👨‍👩‍👧 Family Sharing</div>
+          <h3 class="feature-title">The whole family, one list</h3>
+          <p class="feature-desc">One invite. Your whole family on the same list, updating in real time.</p>
+          <ul class="feature-points">
+            <li>Share with a single tap</li>
+            <li>Updates sync instantly across devices</li>
+            <li>Family member at home, you at the store — always in sync</li>
+          </ul>
+        </div>
+        <div class="feature-visual">👨‍👩‍👧</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+
+<!-- ── HOW IT WORKS ────────────────────────────────────── -->
+<section class="section">
+  <div class="section-inner">
+    <div class="section-tag">How it works</div>
+    <h2 class="section-title">Three steps to a smarter shop</h2>
+    <p class="section-sub">No tutorial needed. Open the app and you're ready.</p>
+    <div class="steps-grid">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-emoji">✍️</div>
+        <div class="step-title">Add your items</div>
+        <div class="step-desc">Type, speak aloud, or scan an old receipt. Add everything you need in under a minute.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-emoji">🛒</div>
+        <div class="step-title">Shop & check off</div>
+        <div class="step-desc">Tick items as you pick them up. Your total updates live so you always know where you stand.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-emoji">📊</div>
+        <div class="step-title">Review & improve</div>
+        <div class="step-desc">Your trip is saved automatically. Repeat it next week or check your spending trends over time.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── FINAL CTA ───────────────────────────────────────── -->
+<section class="cta-section">
+  <div class="cta-inner">
+    <div class="cta-tag">Free · No credit card · No account needed</div>
+    <h2>Start your first grocery list in 30 seconds — free.</h2>
+    <p>Join shoppers and families who shop smarter with Listorix.</p>
+    <div class="cta-buttons">
+      <a href="#" class="btn-cta-primary">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+        Download for iPhone
+      </a>
+      <a href="#" class="btn-cta-secondary">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.18 23.76c.3.17.64.22.99.14l12.82-7.4-2.82-2.82-10.99 10.08zM.35 1.15C.13 1.53 0 2.02 0 2.62v18.76c0 .6.13 1.09.36 1.47l.07.07 10.51-10.51v-.25L.42 1.08l-.07.07zM20.65 10.35l-2.83-1.63-3.17 3.17 3.17 3.17 2.85-1.65c.81-.47.81-1.23-.02-1.06zM3.18.24L16 7.64l-2.82 2.82L2.19.38c.36-.22.74-.24.99-.14z"/></svg>
+        Download for Android
+      </a>
+    </div>
+    <div class="cta-note">Works offline · No ads · Free forever for core features</div>
+  </div>
+</section>
+
+<!-- ── FOOTER ──────────────────────────────────────────── -->
+<footer>
+  <div class="footer-inner">
+    <a href="/" class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <span class="logo-name">Listorix</span>
+    </a>
+    <div class="footer-links">
+      <a href="/privacy.html">Privacy Policy</a>
+      <a href="/terms.html">Terms of Service</a>
+      <a href="/contact.html">Contact</a>
+    </div>
+    <div class="footer-copy">© 2026 Listorix. Built for everyday shopping</div>
+  </div>
+</footer>
+
+</body>
+</html>
